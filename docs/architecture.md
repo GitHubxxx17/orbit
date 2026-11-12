@@ -9,6 +9,7 @@
 - **Tool call** — a request by the model to run a tool; has a `callId` and a `risk` level.
 - **Risk** — `read` (auto-allow), `write` (batched approval), `dangerous` (hard block).
 - **Policy** — maps a tool call to `allow`, `ask` or `deny` from declarative rules.
+- **Session** — an ordered list of runs; the conversation the model sees is rebuilt from their logs.
 - **Approval** — one pause per model turn in which the user reviews every `ask` call with its preview.
 
 ## Invariants
@@ -40,6 +41,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | SSE run API, demo model, chat UI  | implemented |
 | Policy rules, batched approval    | implemented |
 | Write tool with diff preview      | implemented |
+| Sessions, history, context budget | implemented |
 | SQLite persistence, replay, fork  | planned     |
 | MCP, evaluation, desktop shell    | planned     |
 

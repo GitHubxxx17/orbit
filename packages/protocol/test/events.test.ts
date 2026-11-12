@@ -45,4 +45,9 @@ describe('OrbitEvent', () => {
         .success,
     ).toBe(false);
   });
+
+  it('accepts a user message and rejects an empty one', () => {
+    expect(OrbitEvent.safeParse({ ...base, type: 'user.message', text: 'hi' }).success).toBe(true);
+    expect(OrbitEvent.safeParse({ ...base, type: 'user.message', text: '' }).success).toBe(false);
+  });
 });

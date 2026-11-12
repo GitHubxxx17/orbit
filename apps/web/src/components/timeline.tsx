@@ -4,6 +4,7 @@ import type { TimelineRow } from '@/state/timeline';
 
 const DOT: Record<TimelineRow['type'], string> = {
   'run.started': 'bg-sky-400',
+  'user.message': 'bg-sky-300',
   'message.delta': 'bg-zinc-500',
   'tool.requested': 'bg-violet-400',
   'tool.decided': 'bg-amber-400',

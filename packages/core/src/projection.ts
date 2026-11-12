@@ -19,6 +19,8 @@ export interface RunState {
   status: RunStatus;
   agentId: string | null;
   workspace: string | null;
+  /** What the user asked, from the user.message event. */
+  prompt: string | null;
   /** Concatenated assistant text from message.delta events. */
   text: string;
   toolCalls: ToolCallState[];
@@ -31,6 +33,7 @@ export const initialRunState: RunState = {
   status: 'idle',
   agentId: null,
   workspace: null,
+  prompt: null,
   text: '',
   toolCalls: [],
   failureReason: null,
@@ -54,6 +57,8 @@ export function applyEvent(state: RunState, event: OrbitEvent): RunState {
   switch (event.type) {
     case 'run.started':
       return { ...next, status: 'running', agentId: event.agentId, workspace: event.workspace };
+    case 'user.message':
+      return { ...next, prompt: event.text };
     case 'message.delta':
       return { ...next, text: state.text + event.text };
     case 'tool.requested':

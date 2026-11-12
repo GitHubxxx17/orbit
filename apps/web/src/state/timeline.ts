@@ -36,6 +36,8 @@ export type RunStatus = 'idle' | 'running' | 'completed' | 'failed';
 
 export interface RunView {
   runId: string | null;
+  /** What the user asked in this run (the user.message event). */
+  prompt: string | null;
   status: RunStatus;
   failReason: string | null;
   lastSeq: number;
@@ -46,6 +48,7 @@ export interface RunView {
 
 export const emptyRun: RunView = {
   runId: null,
+  prompt: null,
   status: 'idle',
   failReason: null,
   lastSeq: 0,
@@ -58,6 +61,8 @@ export function labelOf(event: OrbitEvent): string {
   switch (event.type) {
     case 'run.started':
       return '运行开始';
+    case 'user.message':
+      return '用户提问';
     case 'message.delta':
       return '模型输出';
     case 'tool.requested':
@@ -108,6 +113,8 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
   switch (event.type) {
     case 'run.started':
       return { ...next, status: 'running' };
+    case 'user.message':
+      return { ...next, prompt: event.text };
     case 'message.delta':
       return { ...next, items: appendText(view.items, event) };
     case 'tool.requested':

@@ -10,3 +10,5 @@ Local HTTP server (Hono).
   not depend on its stream: closing the stream only unsubscribes, and a run is stopped explicitly
   with `POST /runs/:id/cancel`. Starting runs requires `application/json` and a loopback `Host`.
 - Never log request bodies or headers that may contain API keys.
+- A session id is only valid if the server issued it, and a session has one run at a time.
+  Sessions live in memory until events are persisted.

@@ -2,13 +2,8 @@ import { OrbitEvent } from '@orbit/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import { cancelRun, startRun, streamUrl, submitApproval, type Answers, type RunMode } from '@/api';
-import { applyEvents, emptyRun, type RunView } from '@/state/timeline';
-
-type Action = { type: 'reset' } | { type: 'events'; events: OrbitEvent[] };
-
-function reducer(view: RunView, action: Action): RunView {
-  return action.type === 'reset' ? emptyRun : applyEvents(view, action.events);
-}
+import { emptyRun } from '@/state/timeline';
+import { emptySession, sessionReducer } from '@/state/session';
 
 export type Connection = 'closed' | 'open' | 'reconnecting';
 
@@ -17,7 +12,9 @@ export type Connection = 'closed' | 'open' | 'reconnecting';
  * animation frame, so a burst of text deltas costs one render instead of one per delta.
  */
 export function useRun() {
-  const [view, dispatch] = useReducer(reducer, emptyRun);
+  const [session, dispatch] = useReducer(sessionReducer, emptySession);
+  const sessionId = useRef<string | null>(null);
+  const view = session.turns.at(-1) ?? emptyRun;
   const [connection, setConnection] = useState<Connection>('closed');
   const [error, setError] = useState<string | null>(null);
   const source = useRef<EventSource | null>(null);
@@ -66,19 +63,35 @@ export function useRun() {
   );
 
   const start = useCallback(
-    async (prompt: string, mode: RunMode) => {
+    async (prompt: string, mode: RunMode): Promise<boolean> => {
       close();
       buffer.current = [];
-      dispatch({ type: 'reset' });
       setError(null);
+      dispatch({ type: 'new-turn', prompt });
       try {
-        follow(await startRun(prompt, mode));
+        const started = await startRun(prompt, mode, sessionId.current ?? undefined);
+        sessionId.current = started.sessionId;
+        follow(started.runId);
+        return true;
       } catch (e) {
+        dispatch({ type: 'drop-turn' });
         setError(e instanceof Error ? e.message : String(e));
+        return false;
       }
     },
     [close, follow],
   );
+
+  /** Forget the conversation; the next message starts a new one. */
+  const newSession = useCallback(() => {
+    // Do not leave a run going in a conversation nobody is looking at any more.
+    if (view.status === 'running' && view.runId) void cancelRun(view.runId).catch(() => undefined);
+    close();
+    buffer.current = [];
+    sessionId.current = null;
+    setError(null);
+    dispatch({ type: 'new-session' });
+  }, [close, view.status, view.runId]);
 
   const cancel = useCallback(async () => {
     if (!view.runId) return;
@@ -106,5 +119,5 @@ export function useRun() {
     [],
   );
 
-  return { view, connection, error, start, cancel, approve };
+  return { session, view, connection, error, start, cancel, approve, newSession };
 }

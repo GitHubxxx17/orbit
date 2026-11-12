@@ -20,11 +20,10 @@ const STATUS_LABEL = {
 } as const;
 
 export function App() {
-  const { view, connection, error, start, cancel, approve } = useRun();
+  const { session, view, connection, error, start, cancel, approve, newSession } = useRun();
   const [modes, setModes] = useState<RunMode[] | null>(null);
   const [mode, setMode] = useState<RunMode>('demo');
   const [text, setText] = useState(DEFAULT_PROMPT);
-  const [sentPrompt, setSentPrompt] = useState<string | null>(null);
   const [modesError, setModesError] = useState(false);
 
   useEffect(() => {
@@ -36,8 +35,12 @@ export function App() {
 
   const send = () => {
     if (!canSend) return;
-    setSentPrompt(text.trim());
-    void start(text.trim(), mode);
+    const prompt = text.trim();
+    setText('');
+    // If it could not be sent, give the text back so it is not lost.
+    void start(prompt, mode).then((sent) => {
+      if (!sent) setText(prompt);
+    });
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -55,7 +58,17 @@ export function App() {
         <Badge variant={running ? 'default' : 'secondary'}>{STATUS_LABEL[view.status]}</Badge>
         {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
 
-        <div className="ml-auto flex items-center gap-2 text-sm" role="group" aria-label="运行模式">
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto"
+          disabled={session.turns.length === 0}
+          onClick={newSession}
+        >
+          新会话
+        </Button>
+
+        <div className="flex items-center gap-2 text-sm" role="group" aria-label="运行模式">
           {(['demo', 'live'] as const).map((value) => (
             <Button
               key={value}
@@ -81,7 +94,7 @@ export function App() {
       <main className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_380px]">
         <section className="flex min-h-0 flex-col" aria-label="对话">
           <ScrollArea className="min-h-0 flex-1">
-            <Conversation prompt={sentPrompt} view={view} onApprove={approve} />
+            <Conversation session={session} onApprove={approve} />
           </ScrollArea>
 
           <div className="border-t p-3">

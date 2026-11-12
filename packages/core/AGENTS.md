@@ -13,3 +13,7 @@ Event store and the agent runtime.
 - Policy decisions are pure and synchronous. `dangerous` is always refused and an unknown tool is
   always refused; neither can be changed by configuration. Waiting for the user goes through the
   injected `Approver`, never through UI code (ADR 0002).
+- Conversation history is derived from event logs (`historyFromRuns`), never stored separately
+  (ADR 0003). Anything the model must be able to see again later has to be in an event.
+- `fitToBudget` must keep every assistant tool call next to its tool answers; test it with the
+  pairing check before changing it.

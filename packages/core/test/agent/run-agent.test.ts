@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import type { ApprovalRequest } from '../../src/agent/approval.js';
 import { createPolicy, defaultPolicyConfig } from '../../src/agent/policy.js';
+import { historyFromRuns } from '../../src/agent/history.js';
 import { runAgent, type RunAgentOptions } from '../../src/agent/run-agent.js';
 import { InMemoryEventStore } from '../../src/event-store.js';
 import { checkInvariants } from '../../src/invariants.js';
@@ -75,6 +76,7 @@ describe('runAgent', () => {
     expect(result).toEqual({ status: 'completed' });
     expect(types(store)).toEqual([
       'run.started',
+      'user.message',
       'message.delta',
       'message.delta',
       'run.completed',
@@ -92,6 +94,7 @@ describe('runAgent', () => {
     expect(result).toEqual({ status: 'completed' });
     expect(types(store)).toEqual([
       'run.started',
+      'user.message',
       'tool.requested',
       'tool.decided',
       'tool.result',
@@ -227,7 +230,7 @@ describe('runAgent', () => {
     const result = await runAgent(options);
 
     expect(result).toEqual({ status: 'failed', reason: 'cancelled' });
-    expect(types(store)).toEqual(['run.started', 'run.failed']);
+    expect(types(store)).toEqual(['run.started', 'user.message', 'run.failed']);
   });
 
   it('reports a model error as a failed run', async () => {
@@ -291,6 +294,7 @@ describe('runAgent: approvals', () => {
     expect(written).toEqual(['a.txt']);
     expect(types(store)).toEqual([
       'run.started',
+      'user.message',
       'tool.requested',
       'approval.requested',
       'tool.decided',
@@ -428,5 +432,57 @@ describe('runAgent: approvals', () => {
     expect(result).toEqual({ status: 'failed', reason: 'cancelled' });
     expect(written).toEqual([]);
     expect(types(store).at(-1)).toBe('run.failed');
+  });
+});
+
+describe('runAgent: conversation', () => {
+  it('records what the user asked right after the run starts', async () => {
+    const { store, options } = setup([[say('hi'), finish()]], { prompt: 'what is up' });
+    await runAgent(options);
+
+    expect(store.read('r1')[1]).toMatchObject({ type: 'user.message', text: 'what is up' });
+  });
+
+  it('sends earlier turns to the model between the system prompt and the new question', async () => {
+    const { llm, options } = setup([[say('ok'), finish()]], {
+      prompt: 'and now?',
+      history: [
+        { role: 'user', content: 'first question' },
+        { role: 'assistant', content: 'first answer' },
+      ],
+    });
+    await runAgent(options);
+
+    expect(llm.requests[0]?.messages.map((m) => m.content)).toEqual([
+      'be brief',
+      'first question',
+      'first answer',
+      'and now?',
+    ]);
+  });
+
+  it('rebuilds exactly what the model saw from the log of the run', async () => {
+    const { store, llm, options } = setup([
+      [say('looking'), call('c1', 'echo', { text: 'ping' }), finish('tool_calls')],
+      [say('done'), finish()],
+    ]);
+    await runAgent(options);
+
+    const seen = llm.requests[1]?.messages.slice(1); // without the system prompt
+    expect(historyFromRuns([store.read('r1')]).slice(0, 3)).toEqual(seen);
+  });
+
+  it('trims what is sent to the model to the size budget, oldest exchanges first', async () => {
+    const long = 'x'.repeat(400);
+    const { llm, options } = setup([[say('ok'), finish()]], {
+      maxContextChars: 300,
+      history: [
+        { role: 'user', content: 'old question' },
+        { role: 'assistant', content: long },
+      ],
+    });
+    await runAgent(options);
+
+    expect(llm.requests[0]?.messages.map((m) => m.content)).toEqual(['be brief', 'hi']);
   });
 });
