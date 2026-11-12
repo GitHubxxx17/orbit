@@ -31,7 +31,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Run projection, invariant checker | implemented |
 | Read-events HTTP endpoint         | implemented |
 | Model adapter (OpenAI-compatible) | implemented |
-| Agent loop, tools                 | planned     |
+| Tool registry, agent loop         | implemented |
 | Policy engine, approvals, sandbox | planned     |
 | SQLite persistence, replay, fork  | planned     |
 | MCP, evaluation, desktop shell    | planned     |
