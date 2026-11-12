@@ -32,7 +32,7 @@ Read `docs/architecture.md` before changing anything in `packages/` or `apps/ser
 ## Workflow
 
 1. Restate the task and list the files you expect to touch. Ask if the request is ambiguous.
-2. Write or update a test first for behavior changes; keep tests next to source (`*.test.ts`).
+2. Write or update a test first for behavior changes; tests live in each package's `test/` directory, mirroring `src/` (`test/<path>.test.ts`); never put `*.test.ts` under `src/`.
 3. Make the smallest change that solves the task. No unrelated refactors or reformatting.
 4. Run `pnpm format && pnpm check`. Do not report success unless it passes; paste failures verbatim.
 5. Changing a public contract (event schema, HTTP API) or a major technology choice requires a new

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { InMemoryEventStore } from './event-store.js';
-import { applyEvent, initialRunState, projectRun } from './projection.js';
+import { InMemoryEventStore } from '../src/event-store.js';
+import { applyEvent, initialRunState, projectRun } from '../src/projection.js';
 
 function store() {
   let id = 0;

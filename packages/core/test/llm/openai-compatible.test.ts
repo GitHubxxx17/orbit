@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createOpenAICompatibleClient } from './openai-compatible.js';
-import { collect, event, sseResponse } from './test-helpers.js';
-import { LlmError, type ChatRequest } from './types.js';
+import { createOpenAICompatibleClient } from '../../src/llm/openai-compatible.js';
+import { collect, event, sseResponse } from './helpers.js';
+import { LlmError, type ChatRequest } from '../../src/llm/types.js';
 
 const config = { baseUrl: 'https://llm.test/v1/', apiKey: 'sk-secret', model: 'test-model' };
 const request: ChatRequest = { messages: [{ role: 'user', content: 'hi' }] };

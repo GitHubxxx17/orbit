@@ -9,4 +9,4 @@ The contract package. Everything here is a public interface to every other packa
   migration note, because stored logs must stay readable.
 - This package must not import any other `@orbit/*` package or any runtime-specific API
   (no `node:*`, no DOM), so both server and web can use it.
-- Every schema change needs a test in `src/events.test.ts` covering one valid and one invalid case.
+- Every schema change needs a test in `test/events.test.ts` covering one valid and one invalid case.

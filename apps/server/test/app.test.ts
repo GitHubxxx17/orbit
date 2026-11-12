@@ -1,6 +1,6 @@
 import { InMemoryEventStore } from '@orbit/core';
 import { describe, expect, it } from 'vitest';
-import { createApp } from './app.js';
+import { createApp } from '../src/app.js';
 
 describe('server app', () => {
   it('reports health', async () => {

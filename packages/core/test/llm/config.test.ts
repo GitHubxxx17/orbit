@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadLlmConfig } from './config.js';
+import { loadLlmConfig } from '../../src/llm/config.js';
 
 describe('loadLlmConfig', () => {
   it('reads a valid environment', () => {

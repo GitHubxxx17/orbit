@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseSse } from './sse.js';
-import { collect, streamOf } from './test-helpers.js';
+import { parseSse } from '../../src/llm/sse.js';
+import { collect, streamOf } from './helpers.js';
 
 const parse = (chunks: string[]) => collect(parseSse(streamOf(chunks)));
 
