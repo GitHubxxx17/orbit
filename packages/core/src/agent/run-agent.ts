@@ -5,6 +5,7 @@ import type { ChatMessage, FinishReason, LlmClient, ToolCall } from '../llm/type
 import type { ToolRegistry } from '../tools/registry.js';
 import type { Tool } from '../tools/tool.js';
 import { denyAllApprover, type Approver } from './approval.js';
+import { fitToBudget } from './context.js';
 import { readOnlyPolicy, type Policy } from './policy.js';
 
 export interface RunAgentOptions {
@@ -17,6 +18,10 @@ export interface RunAgentOptions {
   systemPrompt: string;
   /** The user's request for this run. */
   prompt: string;
+  /** Earlier turns of the same conversation (see `historyFromRuns`). */
+  history?: ChatMessage[];
+  /** Size budget for what is sent to the model, in characters. Default 120000. */
+  maxContextChars?: number;
   policy?: Policy;
   /** Asked when the policy answers "ask". Without one, every such call is refused. */
   approver?: Approver;
@@ -30,6 +35,7 @@ export interface RunAgentOptions {
 export type RunResult = { status: 'completed' } | { status: 'failed'; reason: string };
 
 const DEFAULT_MAX_STEPS = 10;
+const DEFAULT_MAX_CONTEXT_CHARS = 120_000;
 
 /**
  * The agent loop: call the model, run the tools it asks for, feed results back, repeat until it
@@ -46,6 +52,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
     workspace: options.workspace,
   });
 
+  // Record what was asked, so the conversation can be rebuilt from the log alone.
+  store.append(runId, { type: 'user.message', text: options.prompt });
+
   const fail = (reason: string): RunResult => {
     store.append(runId, { type: 'run.failed', reason });
     return { status: 'failed', reason };
@@ -53,14 +62,17 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
 
   const messages: ChatMessage[] = [
     { role: 'system', content: options.systemPrompt },
+    ...(options.history ?? []),
     { role: 'user', content: options.prompt },
   ];
+  const maxChars = options.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS;
 
   try {
     for (let step = 0; step < maxSteps; step++) {
       if (signal?.aborted) return fail('cancelled');
 
-      const turn = await streamTurn(options, messages);
+      // `messages` keeps everything; only the copy sent to the model is trimmed to the budget.
+      const turn = await streamTurn(options, fitToBudget(messages, { maxChars }));
       messages.push({
         role: 'assistant',
         content: turn.text === '' ? null : turn.text,

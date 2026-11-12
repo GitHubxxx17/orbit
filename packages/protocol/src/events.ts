@@ -23,6 +23,8 @@ export const OrbitEvent = z.discriminatedUnion('type', [
     agentId: z.string().min(1),
     workspace: z.string().min(1),
   }),
+  /** What the user asked in this run; recorded so history can be rebuilt from the log alone. */
+  z.object({ ...base, type: z.literal('user.message'), text: z.string().min(1) }),
   z.object({ ...base, type: z.literal('message.delta'), text: z.string() }),
   z.object({
     ...base,
