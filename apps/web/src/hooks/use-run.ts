@@ -1,7 +1,7 @@
 import { OrbitEvent } from '@orbit/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
-import { cancelRun, startRun, streamUrl, type RunMode } from '@/api';
+import { cancelRun, startRun, streamUrl, submitApproval, type Answers, type RunMode } from '@/api';
 import { applyEvents, emptyRun, type RunView } from '@/state/timeline';
 
 type Action = { type: 'reset' } | { type: 'events'; events: OrbitEvent[] };
@@ -89,6 +89,15 @@ export function useRun() {
     }
   }, [view.runId]);
 
+  /** Send the user's answer. Throws on failure so the approval panel can show the reason. */
+  const approve = useCallback(
+    async (approvalId: string, answers: Answers) => {
+      if (!view.runId) throw new Error('没有正在运行的任务');
+      await submitApproval(view.runId, approvalId, answers);
+    },
+    [view.runId],
+  );
+
   useEffect(
     () => () => {
       source.current?.close();
@@ -97,5 +106,5 @@ export function useRun() {
     [],
   );
 
-  return { view, connection, error, start, cancel };
+  return { view, connection, error, start, cancel, approve };
 }

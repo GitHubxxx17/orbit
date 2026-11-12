@@ -15,7 +15,9 @@ describe('describeTool', () => {
     ['grep', { pattern: 'alpha' }, '搜索“alpha”'],
     ['grep', { pattern: 'alpha', path: 'src' }, '在 src 中搜索“alpha”'],
     ['grep', {}, '搜索代码'],
-    ['write_file', { path: 'x' }, '调用 write_file'],
+    ['write_file', { path: 'notes/a.txt', content: 'x' }, '写入 notes/a.txt'],
+    ['write_file', {}, '写入文件'],
+    ['other_tool', { path: 'x' }, '调用 other_tool'],
   ])('%s %j -> %s', (tool, args, expected) => {
     expect(describeTool(tool, args)).toBe(expected);
   });

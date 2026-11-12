@@ -5,7 +5,7 @@ import type { OrbitEvent, RiskLevel } from '@orbit/protocol';
  * events always rebuilds the same screen.
  */
 
-export type ToolStatus = 'pending' | 'running' | 'done' | 'failed' | 'denied';
+export type ToolStatus = 'pending' | 'awaiting' | 'running' | 'done' | 'failed' | 'denied';
 
 export interface ToolCard {
   callId: string;
@@ -15,6 +15,9 @@ export interface ToolCard {
   status: ToolStatus;
   decidedBy?: 'policy' | 'user';
   output?: string;
+  /** Set while the call waits for the user: which approval it belongs to and what would change. */
+  approvalId?: string;
+  preview?: string;
 }
 
 export type ChatItem =
@@ -61,6 +64,8 @@ export function labelOf(event: OrbitEvent): string {
       return `请求工具 ${event.tool}`;
     case 'tool.decided':
       return event.decision === 'allow' ? '策略放行' : '策略拒绝';
+    case 'approval.requested':
+      return `等待审批（${event.items.length} 项）`;
     case 'tool.result':
       return event.ok ? '工具成功' : '工具失败';
     case 'run.completed':
@@ -128,6 +133,21 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
         ...next,
         tools: { ...view.tools, [event.callId]: { ...card, status, decidedBy: event.by } },
       };
+    }
+    case 'approval.requested': {
+      const tools = { ...view.tools };
+      for (const item of event.items) {
+        const card = tools[item.callId];
+        if (card) {
+          tools[item.callId] = {
+            ...card,
+            status: 'awaiting',
+            approvalId: event.approvalId,
+            preview: item.preview,
+          };
+        }
+      }
+      return { ...next, tools };
     }
     case 'tool.result': {
       const card = view.tools[event.callId];

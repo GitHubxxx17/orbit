@@ -33,6 +33,10 @@ export function describeTool(tool: string, args: Record<string, unknown>): strin
       const path = text(args['path']);
       return isRoot(path) ? `搜索“${shown}”` : `在 ${path} 中搜索“${shown}”`;
     }
+    case 'write_file': {
+      const path = text(args['path']);
+      return path === null ? '写入文件' : `写入 ${path}`;
+    }
     default:
       return `调用 ${tool}`;
   }

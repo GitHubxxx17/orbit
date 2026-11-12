@@ -1,5 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 
+import type { Answers } from '@/api';
+import { ApprovalPanel } from '@/components/approval-panel';
 import { ProcessGroup } from '@/components/process-group';
 import { layoutItems } from '@/state/group';
 import type { RunView } from '@/state/timeline';
@@ -8,9 +10,17 @@ const TextBlock = memo(function TextBlock({ text }: { text: string }) {
   return <p className="my-2 leading-relaxed whitespace-pre-wrap">{text}</p>;
 });
 
-export function Conversation({ prompt, view }: { prompt: string | null; view: RunView }) {
+interface Props {
+  prompt: string | null;
+  view: RunView;
+  onApprove: (approvalId: string, answers: Answers) => Promise<void>;
+}
+
+export function Conversation({ prompt, view, onApprove }: Props) {
   const bottom = useRef<HTMLDivElement>(null);
   const layout = layoutItems(view.items, view.status);
+  const waiting = Object.values(view.tools).filter((card) => card.status === 'awaiting');
+  const approvalId = waiting[0]?.approvalId;
 
   // Keep the newest output in view while it streams.
   useEffect(() => {
@@ -48,6 +58,16 @@ export function Conversation({ prompt, view }: { prompt: string | null; view: Ru
         layout.items.map((item) =>
           item.kind === 'text' ? <TextBlock key={item.id} text={item.text} /> : null,
         )
+      )}
+
+      {approvalId && (
+        // Keyed by approval so a new request starts with every change selected again.
+        <ApprovalPanel
+          key={approvalId}
+          approvalId={approvalId}
+          cards={waiting.filter((card) => card.approvalId === approvalId)}
+          onSubmit={onApprove}
+        />
       )}
 
       {view.status === 'failed' && (
