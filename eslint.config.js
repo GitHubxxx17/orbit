@@ -48,6 +48,22 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/store-sqlite/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@orbit/server', '@orbit/web', '@orbit/tools'],
+              message: 'store-sqlite may depend on core and protocol only.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['packages/tools/**/*.ts'],
     rules: {
       'no-restricted-imports': [
@@ -68,7 +84,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ['@orbit/core', '@orbit/tools', '@orbit/server'],
+              group: ['@orbit/core', '@orbit/tools', '@orbit/store-sqlite', '@orbit/server'],
               message: 'web may import @orbit/protocol only.',
             },
           ],
