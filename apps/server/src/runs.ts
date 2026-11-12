@@ -69,12 +69,10 @@ export interface RunManagerOptions {
   registry: ToolRegistry;
   workspace: string;
   demoLlm: LlmClient;
-  /** Absent when no model credentials are configured. */
-  liveLlm?: LlmClient;
+  /** The model for live mode right now; asked on every call so saved settings apply at once. */
+  live?: () => { llm: LlmClient; name: string } | undefined;
   /** Where sessions are kept. Defaults to memory, which is lost on restart. */
   sessions?: SessionStore;
-  /** Name of the live model, shown in the UI. */
-  liveModel?: string;
   /** Decides which tool calls run, wait for the user, or are refused. */
   policy?: Policy;
   /** Asked for the calls the policy leaves to the user. */
@@ -100,7 +98,7 @@ export class RunManager implements RunStarter {
   }
 
   modes(): RunMode[] {
-    return this.options.liveLlm ? ['demo', 'live'] : ['demo'];
+    return this.options.live?.() ? ['demo', 'live'] : ['demo'];
   }
 
   start({
@@ -117,7 +115,7 @@ export class RunManager implements RunStarter {
     runId: string;
     sessionId: string;
   } {
-    const llm = mode === 'live' ? this.options.liveLlm : this.options.demoLlm;
+    const llm = mode === 'live' ? this.options.live?.()?.llm : this.options.demoLlm;
     if (!llm) throw new RunRejected('live mode is not configured on this server', 400);
 
     // A client cannot invent a session id: only ids this server handed out are accepted.
@@ -200,7 +198,7 @@ export class RunManager implements RunStarter {
     return {
       workspace: this.options.workspace,
       workspaceName: path.basename(this.options.workspace) || this.options.workspace,
-      liveModel: this.options.liveLlm ? (this.options.liveModel ?? null) : null,
+      liveModel: this.options.live?.()?.name ?? null,
     };
   }
 

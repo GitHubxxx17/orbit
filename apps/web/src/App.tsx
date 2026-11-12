@@ -13,6 +13,7 @@ import { Composer } from '@/components/composer';
 import { Conversation } from '@/components/conversation';
 import { EmptyState } from '@/components/empty-state';
 import { RightPanel } from '@/components/right-panel';
+import { SettingsView } from '@/components/settings-view';
 import { Sidebar } from '@/components/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
@@ -51,9 +52,11 @@ export function App() {
   const [text, setText] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const loadInfo = () => fetchInfo().then(setInfo, () => setInfoFailed(true));
   useEffect(() => {
-    fetchInfo().then(setInfo, () => setInfoFailed(true));
+    void loadInfo();
   }, []);
 
   // The list is fetched again when a run starts or ends.
@@ -122,6 +125,10 @@ export function App() {
     />
   );
 
+  if (settingsOpen) {
+    return <SettingsView onBack={() => setSettingsOpen(false)} onChanged={() => void loadInfo()} />;
+  }
+
   return (
     <div className="flex h-screen bg-background text-foreground">
       {sidebarOpen && (
@@ -135,6 +142,7 @@ export function App() {
             onNew={newSession}
             onRename={rename}
             onDelete={remove}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         </div>
       )}

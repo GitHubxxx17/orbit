@@ -1,13 +1,16 @@
 import {
+  ModelStatus,
+  ModelTestResult,
   OrbitEvent,
   ServerInfo,
   SessionList,
   SessionRuns,
+  type ModelInput,
   type RunMode,
   type SessionSummary,
 } from '@orbit/protocol';
 
-export type { RunMode, ServerInfo, SessionSummary };
+export type { ModelInput, ModelStatus, ModelTestResult, RunMode, ServerInfo, SessionSummary };
 
 /** Who decides on writes: ask the user each turn, or refuse them outright. */
 export type ApprovalMode = 'ask' | 'readonly';
@@ -111,4 +114,32 @@ export async function renameSession(sessionId: string, title: string): Promise<v
 export async function deleteSession(sessionId: string): Promise<void> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
   if (!res.ok) throw await failure(res);
+}
+
+const sendJson = (method: string, url: string, body?: unknown) =>
+  fetch(url, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+
+export const fetchModel = (): Promise<ModelStatus> =>
+  getJson('/api/settings/model', (data) => ModelStatus.parse(data));
+
+export async function saveModel(input: ModelInput): Promise<ModelStatus> {
+  const res = await sendJson('PUT', '/api/settings/model', input);
+  if (!res.ok) throw await failure(res);
+  return ModelStatus.parse(await res.json());
+}
+
+export async function clearModel(): Promise<ModelStatus> {
+  const res = await sendJson('DELETE', '/api/settings/model');
+  if (!res.ok) throw await failure(res);
+  return ModelStatus.parse(await res.json());
+}
+
+export async function testModel(input: ModelInput): Promise<ModelTestResult> {
+  const res = await sendJson('POST', '/api/settings/model/test', input);
+  if (!res.ok) throw await failure(res);
+  return ModelTestResult.parse(await res.json());
 }

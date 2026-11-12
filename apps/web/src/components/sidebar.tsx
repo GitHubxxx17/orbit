@@ -1,4 +1,4 @@
-import { Folder, Pencil, Search, SquarePen, Trash2 } from 'lucide-react';
+import { Folder, Pencil, Search, Settings, SquarePen, Trash2 } from 'lucide-react';
 import { useMemo, useState, type KeyboardEvent } from 'react';
 
 import type { SessionSummary } from '@/api';
@@ -22,13 +22,24 @@ interface Props {
   onNew: () => void;
   onRename: (sessionId: string, title: string) => void;
   onDelete: (sessionId: string) => void;
+  onOpenSettings: () => void;
 }
 
 const iconButton =
   'flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none';
 
 export function Sidebar(props: Props) {
-  const { workspaceName, sessions, failed, activeId, onSelect, onNew, onRename, onDelete } = props;
+  const {
+    workspaceName,
+    sessions,
+    failed,
+    activeId,
+    onSelect,
+    onNew,
+    onRename,
+    onDelete,
+    onOpenSettings,
+  } = props;
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -203,6 +214,13 @@ export function Sidebar(props: Props) {
             );
           })}
         </ul>
+      </div>
+
+      <div className="border-t p-2">
+        <Button variant="ghost" className="w-full justify-start" onClick={onOpenSettings}>
+          <Settings aria-hidden data-icon="inline-start" />
+          设置
+        </Button>
       </div>
     </nav>
   );
