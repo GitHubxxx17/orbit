@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "chat": "tsx --env-file-if-exists=../../.env src/cli/chat.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
