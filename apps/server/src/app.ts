@@ -16,6 +16,8 @@ export interface AppDeps {
 const StartBody = z.object({
   prompt: z.string().trim().min(1).max(4000),
   mode: z.enum(['demo', 'live']).default('demo'),
+  /** Continue an earlier conversation; omit it to start a new one. */
+  sessionId: z.string().min(1).optional(),
 });
 
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
@@ -56,7 +58,7 @@ export function createApp({ store, runs, approvals }: AppDeps) {
     if (!body.success) return c.json({ error: 'invalid request body' }, 400);
 
     try {
-      return c.json({ runId: runs.start(body.data) }, 201);
+      return c.json(runs.start(body.data), 201);
     } catch (error) {
       if (error instanceof RunRejected) return c.json({ error: error.message }, error.status);
       throw error;

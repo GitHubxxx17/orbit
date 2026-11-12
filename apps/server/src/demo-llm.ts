@@ -51,7 +51,25 @@ const SCRIPT: Step[] = [
 export function createDemoLlm(delayMs = 25): LlmClient {
   return {
     async *stream(request, signal): AsyncGenerator<LlmEvent> {
-      const turn = request.messages.filter((m) => m.role === 'assistant').length;
+      const users = request.messages.filter((m) => m.role === 'user');
+      // A follow-up in the same conversation: answer from what the model was shown, which proves
+      // that earlier turns reach it.
+      const previous = users.length > 1 ? users[users.length - 2] : undefined;
+      if (previous) {
+        const text = `这是同一会话里的第 ${users.length} 条消息。我能看到之前的对话，你上一条说的是：“${previous.content}”。`;
+        for (const piece of chunks(text)) {
+          await sleep(delayMs, signal);
+          yield { type: 'text-delta', text: piece };
+        }
+        yield { type: 'finish', reason: 'stop', usage: null };
+        return;
+      }
+
+      // Steps of the first message: count the assistant turns since the last user message.
+      const lastUser = request.messages.map((m) => m.role).lastIndexOf('user');
+      const turn = request.messages
+        .slice(lastUser + 1)
+        .filter((m) => m.role === 'assistant').length;
       const step = SCRIPT[Math.min(turn, SCRIPT.length - 1)];
       if (!step) return;
 

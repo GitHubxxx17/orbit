@@ -4,6 +4,8 @@ import {
   defineTool,
   InMemoryEventStore,
   ToolRegistry,
+  type ChatMessage,
+  type LlmClient,
 } from '@orbit/core';
 import type { OrbitEvent } from '@orbit/protocol';
 import { describe, expect, it } from 'vitest';
@@ -27,7 +29,7 @@ function setup(overrides: Partial<RunStarter> = {}) {
   const store = new BroadcastingStore(new InMemoryEventStore());
   const runs: RunStarter = {
     modes: () => ['demo'],
-    start: () => 'r1',
+    start: () => ({ runId: 'r1', sessionId: 's1' }),
     cancel: () => false,
     ...overrides,
   };
@@ -78,7 +80,7 @@ describe('POST /runs', () => {
       body: JSON.stringify({ prompt: 'hello' }),
     });
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual({ runId: 'r1' });
+    expect(await res.json()).toEqual({ runId: 'r1', sessionId: 's1' });
   });
 
   it('passes the default demo mode through', async () => {
@@ -86,7 +88,7 @@ describe('POST /runs', () => {
     const { app } = setup({
       start: (request) => {
         received = request;
-        return 'r1';
+        return { runId: 'r1', sessionId: 's1' };
       },
     });
     await call(app, '/runs', { method: 'POST', headers: json, body: '{"prompt":" hi "}' });
@@ -343,5 +345,118 @@ describe('demo run end to end', () => {
       body: JSON.stringify({ prompt: 'x', mode: 'live' }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('sessions', () => {
+  /** A model that always answers "ok" and remembers what it was shown. */
+  function stack(hold?: Promise<void>) {
+    const store = new BroadcastingStore(new InMemoryEventStore());
+    const approvals = new ApprovalBroker();
+    const seen: ChatMessage[][] = [];
+    const llm: LlmClient = {
+      async *stream(request) {
+        seen.push([...request.messages]);
+        await hold;
+        yield { type: 'text-delta', text: 'ok' };
+        yield { type: 'finish', reason: 'stop', usage: null };
+      },
+    };
+    let runs = 0;
+    const manager = new RunManager({
+      store,
+      registry: new ToolRegistry(),
+      workspace: '/w',
+      demoLlm: llm,
+      newId: () => `run${++runs}`,
+      newSessionId: () => 'session1',
+    });
+    return { store, seen, manager, app: createApp({ store, runs: manager, approvals }) };
+  }
+
+  const post = (app: ReturnType<typeof createApp>, body: object) =>
+    call(app, '/runs', { method: 'POST', headers: json, body: JSON.stringify(body) });
+
+  const finished = async (app: ReturnType<typeof createApp>, runId: string) =>
+    readEvents(await call(app, `/runs/${runId}/stream`));
+
+  it('starts a new session when none is given and returns its id', async () => {
+    const { app } = stack();
+    const res = await post(app, { prompt: 'one' });
+    expect(await res.json()).toEqual({ runId: 'run1', sessionId: 'session1' });
+  });
+
+  it('shows the model the earlier turns of the same session', async () => {
+    const { app, seen } = stack();
+    await post(app, { prompt: 'first question' });
+    await finished(app, 'run1');
+
+    const second = await post(app, { prompt: 'second question', sessionId: 'session1' });
+    expect(second.status).toBe(201);
+    await finished(app, 'run2');
+
+    expect(seen[1]?.map((m) => `${m.role}:${m.content}`)).toEqual([
+      expect.stringMatching(/^system:/),
+      'user:first question',
+      'assistant:ok',
+      'user:second question',
+    ]);
+  });
+
+  it('keeps unrelated sessions apart', async () => {
+    const { app, seen } = stack();
+    await post(app, { prompt: 'first question' });
+    await finished(app, 'run1');
+    await post(app, { prompt: 'unrelated' });
+    await finished(app, 'run2');
+
+    expect(seen[1]?.map((m) => m.content)).not.toContain('first question');
+  });
+
+  it('refuses a session id the server never handed out', async () => {
+    const { app } = stack();
+    const res = await post(app, { prompt: 'x', sessionId: 'made-up' });
+    expect(res.status).toBe(404);
+  });
+
+  it('refuses a second run while the session still has one going', async () => {
+    let release = () => {};
+    const { app } = stack(new Promise<void>((resolve) => (release = resolve)));
+    await post(app, { prompt: 'one' });
+    // The model is held back, so run1 is still going.
+    const res = await post(app, { prompt: 'two', sessionId: 'session1' });
+    expect(res.status).toBe(409);
+    release();
+  });
+
+  it('rejects an empty session id', async () => {
+    const { app } = stack();
+    expect((await post(app, { prompt: 'x', sessionId: '' })).status).toBe(400);
+  });
+
+  it('lets the demo model prove it can see the earlier turn', async () => {
+    const store = new BroadcastingStore(new InMemoryEventStore());
+    const approvals = new ApprovalBroker();
+    const manager = new RunManager({
+      store,
+      registry: new ToolRegistry(),
+      workspace: '/w',
+      demoLlm: createDemoLlm(0),
+      newId: (() => {
+        let n = 0;
+        return () => `d${++n}`;
+      })(),
+      newSessionId: () => 's',
+    });
+    const app = createApp({ store, runs: manager, approvals });
+
+    manager.start({ prompt: '你好', mode: 'demo' });
+    await readEvents(await call(app, '/runs/d1/stream')); // wait for the first run to finish
+
+    manager.start({ prompt: '再问一句', mode: 'demo', sessionId: 's' });
+    const events = await readEvents(await call(app, '/runs/d2/stream'));
+    const text = events.flatMap((e) => (e.type === 'message.delta' ? [e.text] : [])).join('');
+    expect(text).toContain('第 2 条消息');
+    expect(text).toContain('你好');
   });
 });
