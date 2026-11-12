@@ -1,13 +1,16 @@
 import { serve } from '@hono/node-server';
 import {
   createOpenAICompatibleClient,
+  createPolicy,
+  defaultPolicyConfig,
   InMemoryEventStore,
   loadLlmConfig,
   ToolRegistry,
   type LlmClient,
 } from '@orbit/core';
-import { createReadOnlyTools } from '@orbit/tools';
+import { createTools } from '@orbit/tools';
 
+import { ApprovalBroker } from './approvals.js';
 import { createApp } from './app.js';
 import { BroadcastingStore } from './broadcast-store.js';
 import { createDemoLlm } from './demo-llm.js';
@@ -28,17 +31,21 @@ try {
 }
 
 const registry = new ToolRegistry();
-for (const tool of await createReadOnlyTools(workspace)) registry.register(tool);
+for (const tool of await createTools(workspace)) registry.register(tool);
 
 const store = new BroadcastingStore(new InMemoryEventStore());
+const approvals = new ApprovalBroker();
 const runs = new RunManager({
   store,
   registry,
   workspace,
+  // Read freely, ask the user before writing, refuse anything dangerous.
+  policy: createPolicy(defaultPolicyConfig),
+  approver: approvals,
   demoLlm: createDemoLlm(),
   ...(liveLlm ? { liveLlm } : {}),
 });
-const app = createApp({ store, runs });
+const app = createApp({ store, runs, approvals });
 
 // Bind to loopback only: this is a local-first tool, not a network service.
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {

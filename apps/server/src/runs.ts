@@ -1,4 +1,11 @@
-import { runAgent, type EventStore, type LlmClient, type ToolRegistry } from '@orbit/core';
+import {
+  runAgent,
+  type Approver,
+  type EventStore,
+  type LlmClient,
+  type Policy,
+  type ToolRegistry,
+} from '@orbit/core';
 
 export type RunMode = 'demo' | 'live';
 
@@ -29,6 +36,10 @@ export interface RunManagerOptions {
   demoLlm: LlmClient;
   /** Absent when no model credentials are configured. */
   liveLlm?: LlmClient;
+  /** Decides which tool calls run, wait for the user, or are refused. */
+  policy?: Policy;
+  /** Asked for the calls the policy leaves to the user. */
+  approver?: Approver;
   newId?: () => string;
   /** Runs allowed at once; protects the machine and the model quota. */
   maxActive?: number;
@@ -70,6 +81,8 @@ export class RunManager implements RunStarter {
       registry: this.options.registry,
       systemPrompt: SYSTEM_PROMPT,
       prompt,
+      ...(this.options.policy ? { policy: this.options.policy } : {}),
+      ...(this.options.approver ? { approver: this.options.approver } : {}),
       signal: controller.signal,
     })
       .catch((error: unknown) => {

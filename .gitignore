@@ -13,3 +13,6 @@ coverage
 *.sqlite
 *.sqlite-journal
 .orbit/
+
+# Files the demo agent writes after approval
+.orbit-demo/

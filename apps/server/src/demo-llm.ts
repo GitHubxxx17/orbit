@@ -24,7 +24,7 @@ type Step = { text: string; call?: { name: string; args: unknown } };
 
 /**
  * One scripted turn per model call, chosen by how many assistant messages came before.
- * It exercises all three tool outcomes: allowed, failed, and denied by policy.
+ * It exercises a read the policy allows and a write that waits for the user's approval.
  */
 const SCRIPT: Step[] = [
   { text: '先看一下工作区里有什么。', call: { name: 'list_dir', args: {} } },
@@ -33,11 +33,17 @@ const SCRIPT: Step[] = [
     call: { name: 'read_file', args: { path: 'package.json', limit: 8 } },
   },
   {
-    text: '试着修改一个文件。',
-    call: { name: 'write_file', args: { path: 'notes.txt', content: 'x' } },
+    text: '我想写一个笔记文件，这需要你批准。',
+    call: {
+      name: 'write_file',
+      args: {
+        path: '.orbit-demo/notes.txt',
+        content: '星轨演示：这个文件由智能体在你批准后写入。\n',
+      },
+    },
   },
   {
-    text: '写文件被策略拒绝了，所以我只做了只读的查看。以上就是这次演示：工具调用、策略决定和结果都记录成了事件，可以在右侧时间线回放。',
+    text: '演示结束。写文件这一步由你审批，批准后才会真正写盘；每一步和你的选择都记录成了事件，可以在右侧时间线回放。',
   },
 ];
 
