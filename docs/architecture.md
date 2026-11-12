@@ -33,6 +33,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Model adapter (OpenAI-compatible) | implemented |
 | Tool registry, agent loop         | implemented |
 | Read-only file tools, sandbox     | implemented |
+| SSE run API, demo model, chat UI  | implemented |
 | Policy engine, approvals, sandbox | planned     |
 | SQLite persistence, replay, fork  | planned     |
 | MCP, evaluation, desktop shell    | planned     |
