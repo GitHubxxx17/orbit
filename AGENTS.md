@@ -14,7 +14,8 @@ Read `docs/architecture.md` before changing anything in `packages/` or `apps/ser
 
 - `packages/protocol` — zod event schemas, the contract. Depends on nothing internal.
 - `packages/core` — event store and runtime. May import `protocol` only.
-- `apps/server` — Hono HTTP server. May import `core` and `protocol`.
+- `packages/tools` — built-in tools and the workspace sandbox. May import `core`.
+- `apps/server` — Hono HTTP server. May import `core`, `tools` and `protocol`.
 - `apps/web` — React UI. May import `protocol` only (types and schemas), never `core`.
 - Boundaries are enforced by ESLint; a violation fails `pnpm check`.
 - Each package has its own `AGENTS.md`; the nearest one wins.

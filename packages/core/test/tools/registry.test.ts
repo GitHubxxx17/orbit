@@ -23,6 +23,18 @@ describe('ToolRegistry', () => {
     expect(registry.get('add')).toBe(tool);
     expect(registry.get('missing')).toBeUndefined();
   });
+
+  it('marks fields with defaults as optional in the schema sent to the model', () => {
+    const withDefault = defineTool({
+      name: 'paged',
+      description: 'Paged read.',
+      risk: 'read',
+      schema: z.object({ path: z.string(), limit: z.number().default(10) }),
+      execute: async () => '',
+    });
+    const [spec] = new ToolRegistry().register(withDefault).specs();
+    expect(spec?.parameters).toMatchObject({ required: ['path'] });
+  });
 });
 
 describe('defineTool', () => {

@@ -48,6 +48,19 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/tools/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: ['@orbit/server', '@orbit/web'], message: 'tools must not depend on apps.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['apps/web/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
@@ -55,7 +68,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ['@orbit/core', '@orbit/server'],
+              group: ['@orbit/core', '@orbit/tools', '@orbit/server'],
               message: 'web may import @orbit/protocol only.',
             },
           ],
