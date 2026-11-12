@@ -42,6 +42,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Policy rules, batched approval    | implemented |
 | Write tool with diff preview      | implemented |
 | Sessions, history, context budget | implemented |
+| Session list, theme, Markdown UI  | implemented |
 | SQLite persistence, replay, fork  | planned     |
 | MCP, evaluation, desktop shell    | planned     |
 

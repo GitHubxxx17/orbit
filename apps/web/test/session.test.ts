@@ -2,6 +2,7 @@ import type { OrbitEvent } from '@orbit/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { emptySession, sessionReducer } from '@/state/session';
+import { emptyRun } from '@/state/timeline';
 
 function event(runId: string, seq: number, draft: Record<string, unknown>): OrbitEvent {
   return { ...draft, id: `${runId}-${seq}`, runId, seq, ts: 0 } as OrbitEvent;
@@ -74,5 +75,34 @@ describe('sessionReducer', () => {
     expect(sessionReducer(emptySession, { type: 'events', events: [started('r1')] })).toBe(
       emptySession,
     );
+  });
+
+  it('replaces everything with turns loaded from stored runs', () => {
+    const session = sessionReducer(emptySession, { type: 'new-turn', prompt: 'old' });
+    const loaded = sessionReducer(session, {
+      type: 'load',
+      turns: [
+        { ...emptyRun, prompt: 'a', runId: 'r1' },
+        { ...emptyRun, prompt: 'b', runId: 'r2' },
+      ],
+    });
+    expect(loaded.turns.map((t) => t.prompt)).toEqual(['a', 'b']);
+  });
+
+  it('remembers which agent ran a turn and how long it took', () => {
+    let session = sessionReducer(emptySession, { type: 'new-turn', prompt: 'x' });
+    session = sessionReducer(session, {
+      type: 'events',
+      events: [
+        { ...started('r1'), ts: 1000 },
+        { ...event('r1', 9, { type: 'run.completed' }), ts: 28_000 },
+      ],
+    });
+    expect(session.turns[0]).toMatchObject({
+      agentId: 'a',
+      startedAt: 1000,
+      endedAt: 28_000,
+      status: 'completed',
+    });
   });
 });

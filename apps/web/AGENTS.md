@@ -16,3 +16,9 @@ React 19 + Vite + Tailwind CSS 4 UI.
 - Interactive elements must be keyboard accessible and have accessible names.
 - A conversation is a list of per-run views (`state/session.ts`); events always go to the newest
   one. Earlier turns are finished and must keep their identity so they do not re-render.
+- Colours must work in both themes: pair every fixed colour class with a `dark:` variant
+  (`text-emerald-600 dark:text-emerald-400`) or use theme tokens (`text-muted-foreground`).
+- Model output is rendered through `components/markdown.tsx` only. Never use
+  `dangerouslySetInnerHTML` and never enable raw HTML in the Markdown renderer; the text may repeat
+  anything the model read. `test/markdown.test.tsx` guards this.
+- Shapes the server returns are parsed with the schemas in `@orbit/protocol` (`src/api.ts`).
