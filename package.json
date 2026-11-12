@@ -11,7 +11,8 @@
     "pnpm": ">=10.13.0"
   },
   "scripts": {
-    "dev": "turbo run dev --parallel",
+    "dev": "node scripts/dev.mjs",
+    "dev:turbo": "turbo run dev --parallel",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
