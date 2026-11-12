@@ -31,6 +31,9 @@ function setup(overrides: Partial<RunStarter> = {}) {
     modes: () => ['demo'],
     start: () => ({ runId: 'r1', sessionId: 's1' }),
     cancel: () => false,
+    listSessions: () => [],
+    sessionRuns: () => undefined,
+    info: () => ({ workspace: '/w', workspaceName: 'w', liveModel: null }),
     ...overrides,
   };
   const approvals = new ApprovalBroker();
@@ -92,7 +95,7 @@ describe('POST /runs', () => {
       },
     });
     await call(app, '/runs', { method: 'POST', headers: json, body: '{"prompt":" hi "}' });
-    expect(received).toEqual({ prompt: 'hi', mode: 'demo' });
+    expect(received).toEqual({ prompt: 'hi', mode: 'demo', approval: 'ask' });
   });
 
   it('requires a JSON content type', async () => {
@@ -458,5 +461,112 @@ describe('sessions', () => {
     const text = events.flatMap((e) => (e.type === 'message.delta' ? [e.text] : [])).join('');
     expect(text).toContain('第 2 条消息');
     expect(text).toContain('你好');
+  });
+});
+
+describe('session list and info', () => {
+  it('reports the workspace and available modes', async () => {
+    const { app } = setup({
+      modes: () => ['demo', 'live'],
+      info: () => ({ workspace: '/home/me/proj', workspaceName: 'proj', liveModel: 'some-model' }),
+    });
+    expect(await (await call(app, '/info')).json()).toEqual({
+      workspace: '/home/me/proj',
+      workspaceName: 'proj',
+      liveModel: 'some-model',
+      modes: ['demo', 'live'],
+    });
+  });
+
+  it('lists sessions', async () => {
+    const summary = {
+      sessionId: 's1',
+      title: 'hello',
+      snippet: 'hi',
+      runCount: 1,
+      status: 'idle' as const,
+      updatedAt: 5,
+    };
+    const { app } = setup({ listSessions: () => [summary] });
+    expect(await (await call(app, '/sessions')).json()).toEqual({ sessions: [summary] });
+  });
+
+  it('returns the runs of a session and 404s for an unknown one', async () => {
+    const { app } = setup({ sessionRuns: (id) => (id === 's1' ? ['r1', 'r2'] : undefined) });
+    expect(await (await call(app, '/sessions/s1')).json()).toEqual({
+      sessionId: 's1',
+      runIds: ['r1', 'r2'],
+    });
+    expect((await call(app, '/sessions/nope')).status).toBe(404);
+  });
+
+  it('passes the approval mode through, defaulting to ask', async () => {
+    const received: unknown[] = [];
+    const { app } = setup({
+      start: (request) => {
+        received.push(request);
+        return { runId: 'r1', sessionId: 's1' };
+      },
+    });
+    const post = (body: object) =>
+      call(app, '/runs', { method: 'POST', headers: json, body: JSON.stringify(body) });
+    await post({ prompt: 'a' });
+    await post({ prompt: 'b', approval: 'readonly' });
+    expect((await post({ prompt: 'c', approval: 'yolo' })).status).toBe(400);
+
+    expect(received).toEqual([
+      { prompt: 'a', mode: 'demo', approval: 'ask' },
+      { prompt: 'b', mode: 'demo', approval: 'readonly' },
+    ]);
+  });
+});
+
+describe('read-only approval mode', () => {
+  it('refuses a write without asking the user', async () => {
+    const store = new BroadcastingStore(new InMemoryEventStore());
+    const approvals = new ApprovalBroker();
+    const written: string[] = [];
+    const registry = new ToolRegistry();
+    for (const name of ['list_dir', 'read_file']) {
+      registry.register(
+        defineTool({
+          name,
+          description: name,
+          risk: 'read',
+          schema: z.object({}),
+          execute: async () => `${name} output`,
+        }),
+      );
+    }
+    registry.register(
+      defineTool({
+        name: 'write_file',
+        description: 'write',
+        risk: 'write',
+        schema: z.object({ path: z.string(), content: z.string() }),
+        preview: async () => '+x',
+        execute: async ({ path }) => {
+          written.push(path);
+          return 'created';
+        },
+      }),
+    );
+    const manager = new RunManager({
+      store,
+      registry,
+      workspace: '/w',
+      policy: createPolicy(defaultPolicyConfig),
+      approver: approvals,
+      demoLlm: createDemoLlm(0),
+      newId: () => 'run1',
+    });
+    const app = createApp({ store, runs: manager, approvals });
+
+    manager.start({ prompt: 'go', mode: 'demo', approval: 'readonly' });
+    const events = await readEvents(await call(app, '/runs/run1/stream'));
+
+    expect(written).toEqual([]);
+    expect(events.map((e) => e.type)).not.toContain('approval.requested');
+    expect(events.at(-1)?.type).toBe('run.completed');
   });
 });
