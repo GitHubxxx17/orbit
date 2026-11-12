@@ -41,10 +41,13 @@ export class InMemoryEventStore implements EventStore {
     });
     log.push(event);
     this.runs.set(runId, log);
-    return event;
+    // Hand out a copy: a caller changing it must not change the log.
+    return structuredClone(event);
   }
 
   read(runId: string, afterSeq = 0): OrbitEvent[] {
-    return (this.runs.get(runId) ?? []).filter((e) => e.seq > afterSeq);
+    return (this.runs.get(runId) ?? [])
+      .filter((e) => e.seq > afterSeq)
+      .map((e) => structuredClone(e));
   }
 }
