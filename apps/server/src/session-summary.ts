@@ -20,6 +20,8 @@ function lastAnswer(events: readonly OrbitEvent[]): string {
 export function summarizeSession(
   sessionId: string,
   runs: readonly (readonly OrbitEvent[])[],
+  /** A title the user chose; it wins over the one derived from the first question. */
+  chosenTitle: string | null = null,
 ): SessionSummary {
   const first = runs[0] ? projectRun(runs[0]) : null;
   const lastEvents = runs.at(-1) ?? [];
@@ -33,7 +35,7 @@ export function summarizeSession(
 
   return {
     sessionId,
-    title: first?.prompt ? clip(oneLine(first.prompt), TITLE_CHARS) : '新会话',
+    title: chosenTitle ?? (first?.prompt ? clip(oneLine(first.prompt), TITLE_CHARS) : '新会话'),
     snippet: clip(oneLine(lastAnswer(lastEvents)), SNIPPET_CHARS),
     runCount: runs.length,
     status,

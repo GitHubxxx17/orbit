@@ -27,6 +27,8 @@ const Answers = z.object({
   answers: z.record(z.string(), z.enum(['allow', 'deny'])),
 });
 
+const Rename = z.object({ title: z.string().trim().min(1).max(80) });
+
 const isTerminal = (event: OrbitEvent) =>
   event.type === 'run.completed' || event.type === 'run.failed';
 
@@ -62,6 +64,23 @@ export function createApp({ store, runs, approvals }: AppDeps) {
     return runIds
       ? c.json({ sessionId: c.req.param('sessionId'), runIds })
       : c.json({ error: 'unknown session' }, 404);
+  });
+
+  app.patch('/sessions/:sessionId', async (c) => {
+    const notJson = requireJson(c.req.header('content-type'));
+    if (notJson) return c.json(notJson.body, notJson.status);
+    const body = Rename.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+    return runs.rename(c.req.param('sessionId'), body.data.title)
+      ? c.json({ ok: true })
+      : c.json({ error: 'unknown session' }, 404);
+  });
+
+  app.delete('/sessions/:sessionId', (c) => {
+    const outcome = runs.remove(c.req.param('sessionId'));
+    if (outcome === 'unknown') return c.json({ error: 'unknown session' }, 404);
+    if (outcome === 'busy') return c.json({ error: 'stop the run in this session first' }, 409);
+    return c.json({ ok: true });
   });
 
   app.post('/runs', async (c) => {
