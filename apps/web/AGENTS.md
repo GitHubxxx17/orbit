@@ -8,4 +8,9 @@ React 19 + Vite + Tailwind CSS 4 UI.
 - Function components and hooks only. Follow the Rules of Hooks (enforced by ESLint).
 - Style with Tailwind utility classes; no inline style objects unless a value is dynamic.
 - Import event types and schemas from `@orbit/protocol`; never import `@orbit/core`.
+- UI primitives come from shadcn/ui (`src/components/ui/`, added with
+  `pnpm dlx shadcn@latest add <name>` from `apps/web`); product components live in
+  `src/components/`. Use the `@/` alias for imports inside `src`.
+- Pin every dependency version the shadcn CLI adds (it writes `^` ranges).
+- Tests live in `test/` and cover pure state logic (`src/state/`), not rendering details.
 - Interactive elements must be keyboard accessible and have accessible names.
