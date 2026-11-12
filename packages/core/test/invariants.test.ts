@@ -1,6 +1,6 @@
 import type { OrbitEvent } from '@orbit/protocol';
 import { describe, expect, it } from 'vitest';
-import { checkInvariants } from './invariants.js';
+import { checkInvariants } from '../src/invariants.js';
 
 type Draft = Omit<OrbitEvent, 'id' | 'runId' | 'seq' | 'ts'> | Record<string, unknown>;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OrbitEvent } from './events.js';
+import { OrbitEvent } from '../src/events.js';
 
 const base = { id: 'e1', runId: 'r1', seq: 1, ts: 1 };
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InMemoryEventStore } from './event-store.js';
+import { InMemoryEventStore } from '../src/event-store.js';
 
 function makeStore() {
   let id = 0;
