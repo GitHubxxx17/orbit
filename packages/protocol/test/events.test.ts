@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ServerInfo, SessionSummary } from '../src/api.js';
+import { ModelInput, ModelStatus, ServerInfo, SessionSummary } from '../src/api.js';
 import { OrbitEvent } from '../src/events.js';
 
 const base = { id: 'e1', runId: 'r1', seq: 1, ts: 1 };
@@ -75,5 +75,26 @@ describe('API shapes', () => {
       true,
     );
     expect(ServerInfo.safeParse({ ...info, modes: ['other'] }).success).toBe(false);
+  });
+
+  it('accepts model input with or without a key, and rejects empty fields', () => {
+    const input = { baseUrl: 'https://api.example.com', model: 'm' };
+    expect(ModelInput.safeParse(input).success).toBe(true);
+    expect(ModelInput.safeParse({ ...input, apiKey: 'k' }).success).toBe(true);
+    expect(ModelInput.safeParse({ ...input, apiKey: '  ' }).success).toBe(false);
+    expect(ModelInput.safeParse({ ...input, model: '' }).success).toBe(false);
+  });
+
+  it('has no place for a key in the model status', () => {
+    const status = {
+      configured: true,
+      source: 'settings',
+      baseUrl: 'https://a.example',
+      model: 'm',
+      apiKeyHint: '1234',
+    };
+    const parsed = ModelStatus.parse({ ...status, apiKey: 'secret' });
+    expect(parsed).not.toHaveProperty('apiKey');
+    expect(ModelStatus.safeParse({ ...status, source: 'cloud' }).success).toBe(false);
   });
 });

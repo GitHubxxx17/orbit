@@ -3,12 +3,11 @@ import path from 'node:path';
 
 import { serve } from '@hono/node-server';
 import {
-  createOpenAICompatibleClient,
   createPolicy,
   defaultPolicyConfig,
   loadLlmConfig,
   ToolRegistry,
-  type LlmClient,
+  type LlmConfig,
 } from '@orbit/core';
 import { openStores } from '@orbit/store-sqlite';
 import { createTools } from '@orbit/tools';
@@ -18,7 +17,9 @@ import { createApp } from './app.js';
 import { BroadcastingStore } from './broadcast-store.js';
 import { createDemoLlm } from './demo-llm.js';
 import { recoverInterruptedRuns } from './recover.js';
+import { ModelManager } from './models.js';
 import { RunManager } from './runs.js';
+import { SettingsStore } from './settings.js';
 
 const port = Number(process.env['ORBIT_PORT'] ?? 8787);
 // The folder the agent may read. Defaults to where the server was started.
@@ -27,18 +28,19 @@ const workspace = process.env['ORBIT_WORKSPACE'] ?? process.cwd();
 // is created readable by the current user only.
 const dataDir = process.env['ORBIT_DATA_DIR'] ?? path.join(os.homedir(), '.orbit');
 
-// Live mode is optional: without model settings only the scripted demo is available.
-let liveLlm: LlmClient | undefined;
-let liveModel: string | undefined;
+// Model settings saved in the UI win over .env; with neither, only the scripted demo is available.
+let envConfig: LlmConfig | undefined;
 try {
-  const config = loadLlmConfig(process.env);
-  liveLlm = createOpenAICompatibleClient(config);
-  liveModel = config.model;
-} catch (error) {
-  console.log(
-    `live mode disabled (${error instanceof Error ? error.message : 'invalid settings'})`,
-  );
+  envConfig = loadLlmConfig(process.env);
+} catch {
+  envConfig = undefined;
 }
+const models = new ModelManager({
+  settings: new SettingsStore(path.join(dataDir, 'settings.json')),
+  env: envConfig,
+});
+if (!models.current())
+  console.log('live mode disabled (no model configured; see the settings page)');
 
 const registry = new ToolRegistry();
 for (const tool of await createTools(workspace)) registry.register(tool);
@@ -58,10 +60,9 @@ const runs = new RunManager({
   policy: createPolicy(defaultPolicyConfig),
   approver: approvals,
   demoLlm: createDemoLlm(),
-  ...(liveLlm ? { liveLlm } : {}),
-  ...(liveModel ? { liveModel } : {}),
+  live: () => models.current(),
 });
-const app = createApp({ store, runs, approvals });
+const app = createApp({ store, runs, approvals, models });
 
 // Bind to loopback only: this is a local-first tool, not a network service.
 const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {

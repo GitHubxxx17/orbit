@@ -38,3 +38,36 @@ export const ServerInfo = z.object({
   modes: z.array(RunMode),
 });
 export type ServerInfo = z.infer<typeof ServerInfo>;
+
+/** Where the model settings in effect came from. */
+export const ModelSource = z.enum(['settings', 'env', 'none']);
+export type ModelSource = z.infer<typeof ModelSource>;
+
+/**
+ * The model settings as the server reports them. The API key is never part of it: only whether
+ * one exists and its last characters, so the user can tell which key is in use.
+ */
+export const ModelStatus = z.object({
+  configured: z.boolean(),
+  source: ModelSource,
+  baseUrl: z.string().nullable(),
+  model: z.string().nullable(),
+  apiKeyHint: z.string().nullable(),
+});
+export type ModelStatus = z.infer<typeof ModelStatus>;
+
+/** What the settings page sends. `apiKey` may be left out to keep the stored one. */
+export const ModelInput = z.object({
+  baseUrl: z.string().trim().min(1).max(300),
+  model: z.string().trim().min(1).max(100),
+  apiKey: z.string().trim().min(1).max(500).optional(),
+});
+export type ModelInput = z.infer<typeof ModelInput>;
+
+/** Result of trying the model with a tiny request. `message` never contains the key. */
+export const ModelTestResult = z.object({
+  ok: z.boolean(),
+  message: z.string(),
+  latencyMs: z.number().int().nonnegative().nullable(),
+});
+export type ModelTestResult = z.infer<typeof ModelTestResult>;

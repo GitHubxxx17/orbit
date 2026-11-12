@@ -1,16 +1,20 @@
-import type { OrbitEvent } from '@orbit/protocol';
+import { ModelInput, type OrbitEvent } from '@orbit/protocol';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 
 import type { ApprovalResolver } from './approvals.js';
 import type { BroadcastingStore } from './broadcast-store.js';
+import type { ModelManager } from './models.js';
+import { SettingsError } from './models.js';
 import { RunRejected, type RunStarter } from './runs.js';
 
 export interface AppDeps {
   store: BroadcastingStore;
   runs: RunStarter;
   approvals: ApprovalResolver;
+  /** Model settings; absent in tests that do not exercise them. */
+  models?: Pick<ModelManager, 'status' | 'save' | 'clear' | 'test'>;
 }
 
 const StartBody = z.object({
@@ -39,7 +43,7 @@ function requireJson(contentType: string | undefined) {
     : { body: { error: 'content-type must be application/json' }, status: 415 as const };
 }
 
-export function createApp({ store, runs, approvals }: AppDeps) {
+export function createApp({ store, runs, approvals, models }: AppDeps) {
   const app = new Hono();
 
   // A web page in the user's browser must not be able to drive this local server through DNS
@@ -82,6 +86,39 @@ export function createApp({ store, runs, approvals }: AppDeps) {
     if (outcome === 'busy') return c.json({ error: 'stop the run in this session first' }, 409);
     return c.json({ ok: true });
   });
+
+  if (models) {
+    // The key is write-only: no response here ever contains it.
+    app.get('/settings/model', (c) => c.json(models.status()));
+
+    app.put('/settings/model', async (c) => {
+      const notJson = requireJson(c.req.header('content-type'));
+      if (notJson) return c.json(notJson.body, notJson.status);
+      const body = ModelInput.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+      try {
+        return c.json(models.save(body.data));
+      } catch (error) {
+        if (error instanceof SettingsError) return c.json({ error: error.message }, 400);
+        throw error;
+      }
+    });
+
+    app.delete('/settings/model', (c) => c.json(models.clear()));
+
+    app.post('/settings/model/test', async (c) => {
+      const notJson = requireJson(c.req.header('content-type'));
+      if (notJson) return c.json(notJson.body, notJson.status);
+      const body = ModelInput.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+      try {
+        return c.json(await models.test(body.data));
+      } catch (error) {
+        if (error instanceof SettingsError) return c.json({ error: error.message }, 400);
+        throw error;
+      }
+    });
+  }
 
   app.post('/runs', async (c) => {
     const notJson = requireJson(c.req.header('content-type'));

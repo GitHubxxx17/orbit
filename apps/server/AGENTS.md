@@ -12,6 +12,8 @@ Local HTTP server (Hono).
 - Never log request bodies or headers that may contain API keys.
 - A session id is only valid if the server issued it, and a session has one run at a time.
 
+- Model settings (`/settings/model*`) are in `settings.json`, never the database; the API key is
+  write-only: no response, log or error may contain it (ADR 0005).
 - API response shapes live in `@orbit/protocol` (`src/api.ts`) so the web app can validate them.
   Session titles and snippets are derived from event logs (`session-summary.ts`), never stored.
 - Conversations are kept in SQLite under the data folder (`~/.orbit` or `ORBIT_DATA_DIR`); the
