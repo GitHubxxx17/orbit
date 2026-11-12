@@ -1,0 +1,21 @@
+{
+  "name": "@orbit/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.7",
+    "@orbit/core": "workspace:*",
+    "@orbit/protocol": "workspace:*",
+    "hono": "4.13.18"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15",
+    "vitest": "5.1.0"
+  }
+}
