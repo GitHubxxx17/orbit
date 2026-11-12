@@ -1,7 +1,14 @@
 import { Orbit, PanelLeft, PanelRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { fetchInfo, type ApprovalMode, type RunMode, type ServerInfo } from '@/api';
+import {
+  deleteSession,
+  fetchInfo,
+  renameSession,
+  type ApprovalMode,
+  type RunMode,
+  type ServerInfo,
+} from '@/api';
 import { Composer } from '@/components/composer';
 import { Conversation } from '@/components/conversation';
 import { EmptyState } from '@/components/empty-state';
@@ -50,9 +57,11 @@ export function App() {
   }, []);
 
   // The list is fetched again when a run starts or ends.
-  const { sessions, failed: sessionsFailed } = useSessions(
-    `${session.turns.length}:${view.status}:${sessionId ?? ''}`,
-  );
+  const {
+    sessions,
+    failed: sessionsFailed,
+    refresh: refreshSessions,
+  } = useSessions(`${session.turns.length}:${view.status}:${sessionId ?? ''}`);
 
   const changes = useMemo(() => collectChanges(session.turns), [session.turns]);
 
@@ -62,6 +71,27 @@ export function App() {
   const workspaceName = info?.workspaceName ?? '工作区';
   const modelLabel = mode === 'live' ? (info?.liveModel ?? '真实模型') : '演示模型';
   const title = session.turns[0]?.prompt ?? '新会话';
+
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const rename = (id: string, title: string) => {
+    setActionError(null);
+    renameSession(id, title).then(refreshSessions, (e: unknown) =>
+      setActionError(e instanceof Error ? e.message : String(e)),
+    );
+  };
+
+  const remove = (id: string) => {
+    setActionError(null);
+    deleteSession(id).then(
+      () => {
+        // If the open conversation was the one deleted, leave it.
+        if (id === sessionId) newSession();
+        refreshSessions();
+      },
+      (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+    );
+  };
 
   const send = () => {
     if (!canSend) return;
@@ -103,6 +133,8 @@ export function App() {
             activeId={sessionId}
             onSelect={(id) => void openSession(id)}
             onNew={newSession}
+            onRename={rename}
+            onDelete={remove}
           />
         </div>
       )}
@@ -144,6 +176,12 @@ export function App() {
             <PanelRight aria-hidden className="size-4" />
           </Button>
         </header>
+
+        {actionError && (
+          <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
+            {actionError}
+          </p>
+        )}
 
         {infoFailed && (
           <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
