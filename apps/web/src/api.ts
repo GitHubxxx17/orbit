@@ -29,3 +29,21 @@ export async function cancelRun(runId: string): Promise<void> {
 }
 
 export const streamUrl = (runId: string) => `/api/runs/${encodeURIComponent(runId)}/stream`;
+
+export type Answers = Record<string, 'allow' | 'deny'>;
+
+export async function submitApproval(
+  runId: string,
+  approvalId: string,
+  answers: Answers,
+): Promise<void> {
+  const res = await fetch(
+    `/api/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ answers }),
+    },
+  );
+  if (!res.ok) throw await failure(res);
+}

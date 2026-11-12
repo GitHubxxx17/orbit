@@ -1,6 +1,7 @@
 import type { OrbitEvent, RiskLevel } from '@orbit/protocol';
 
-export type ToolCallStatus = 'requested' | 'denied' | 'running' | 'succeeded' | 'failed';
+export type ToolCallStatus =
+  'requested' | 'awaiting' | 'denied' | 'running' | 'succeeded' | 'failed';
 
 export interface ToolCallState {
   callId: string;
@@ -80,6 +81,15 @@ export function applyEvent(state: RunState, event: OrbitEvent): RunState {
           decidedBy: event.by,
         })),
       };
+    case 'approval.requested': {
+      const waiting = new Set(event.items.map((item) => item.callId));
+      return {
+        ...next,
+        toolCalls: state.toolCalls.map((call) =>
+          waiting.has(call.callId) ? { ...call, status: 'awaiting' } : call,
+        ),
+      };
+    }
     case 'tool.result':
       return {
         ...next,

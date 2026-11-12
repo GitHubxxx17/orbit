@@ -1,8 +1,15 @@
-import { defineTool, InMemoryEventStore, ToolRegistry } from '@orbit/core';
+import {
+  createPolicy,
+  defaultPolicyConfig,
+  defineTool,
+  InMemoryEventStore,
+  ToolRegistry,
+} from '@orbit/core';
 import type { OrbitEvent } from '@orbit/protocol';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
+import { ApprovalBroker } from '../src/approvals.js';
 import { createApp } from '../src/app.js';
 import { BroadcastingStore } from '../src/broadcast-store.js';
 import { createDemoLlm } from '../src/demo-llm.js';
@@ -24,7 +31,8 @@ function setup(overrides: Partial<RunStarter> = {}) {
     cancel: () => false,
     ...overrides,
   };
-  return { store, app: createApp({ store, runs }) };
+  const approvals = new ApprovalBroker();
+  return { store, approvals, app: createApp({ store, runs, approvals }) };
 }
 
 /** Read an SSE response to the end and parse the `data:` payloads. */
@@ -159,10 +167,86 @@ describe('GET /runs/:id/stream', () => {
   });
 });
 
+describe('POST /runs/:id/approvals/:approvalId', () => {
+  const ask = (approvals: ApprovalBroker) =>
+    approvals.request({
+      runId: 'r1',
+      approvalId: 'a1',
+      items: [{ callId: 'c1', tool: 'write_file', args: {}, preview: '+x' }],
+    });
+  const answer = (app: ReturnType<typeof createApp>, body: string, type = json) =>
+    call(app, '/runs/r1/approvals/a1', { method: 'POST', headers: type, body });
+
+  it('hands the answer to the waiting run', async () => {
+    const { app, approvals } = setup();
+    const waiting = ask(approvals);
+
+    const res = await answer(app, JSON.stringify({ answers: { c1: 'allow' } }));
+    expect(res.status).toBe(200);
+    expect(await waiting).toEqual({ c1: 'allow' });
+  });
+
+  it('answers only once', async () => {
+    const { app, approvals } = setup();
+    void ask(approvals);
+    const body = JSON.stringify({ answers: { c1: 'allow' } });
+    expect((await answer(app, body)).status).toBe(200);
+    expect((await answer(app, body)).status).toBe(404);
+  });
+
+  it('404s when nothing is waiting', async () => {
+    const { app } = setup();
+    expect((await answer(app, JSON.stringify({ answers: {} }))).status).toBe(404);
+  });
+
+  it('rejects answers about calls that were never asked, and keeps waiting', async () => {
+    const { app, approvals } = setup();
+    let settled = false;
+    void ask(approvals).then(() => (settled = true));
+
+    const res = await answer(app, JSON.stringify({ answers: { other: 'allow' } }));
+    expect(res.status).toBe(400);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+  });
+
+  it.each([['not json'], ['{}'], ['{"answers":{"c1":"maybe"}}']])('rejects %s', async (body) => {
+    const { app, approvals } = setup();
+    void ask(approvals);
+    expect((await answer(app, body)).status).toBe(400);
+  });
+
+  it('requires a JSON content type', async () => {
+    const { app, approvals } = setup();
+    void ask(approvals);
+    const res = await answer(app, '{"answers":{"c1":"allow"}}', {
+      'content-type': 'text/plain',
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it('stops waiting when the run is cancelled', async () => {
+    const { approvals } = setup();
+    const controller = new AbortController();
+    const waiting = approvals.request(
+      {
+        runId: 'r1',
+        approvalId: 'a1',
+        items: [{ callId: 'c1', tool: 't', args: {}, preview: '' }],
+      },
+      controller.signal,
+    );
+    controller.abort();
+    await expect(waiting).rejects.toThrow('aborted');
+  });
+});
+
 describe('demo run end to end', () => {
-  it('streams a full run that shows allow, fail-safe and deny', async () => {
+  /** Harmless stand-ins keep these tests independent of the filesystem. */
+  function stack() {
     const store = new BroadcastingStore(new InMemoryEventStore());
-    // Harmless stand-ins keep this test independent of the filesystem.
+    const approvals = new ApprovalBroker();
+    const written: string[] = [];
     const registry = new ToolRegistry();
     for (const name of ['list_dir', 'read_file']) {
       registry.register(
@@ -175,37 +259,77 @@ describe('demo run end to end', () => {
         }),
       );
     }
+    registry.register(
+      defineTool({
+        name: 'write_file',
+        description: 'write',
+        risk: 'write',
+        schema: z.object({ path: z.string(), content: z.string() }),
+        preview: async ({ path }) => `+++ ${path}`,
+        execute: async ({ path }) => {
+          written.push(path);
+          return `created ${path}`;
+        },
+      }),
+    );
     const runs = new RunManager({
       store,
       registry,
       workspace: '/w',
+      policy: createPolicy(defaultPolicyConfig),
+      approver: approvals,
       demoLlm: createDemoLlm(0),
       newId: () => 'demo1',
     });
-    const app = createApp({ store, runs });
+    return { store, approvals, written, app: createApp({ store, runs, approvals }) };
+  }
 
-    const created = await call(app, '/runs', {
+  /** Start a run, answer its approval with `choice` as soon as it appears, return the events. */
+  async function runWith(choice: 'allow' | 'deny') {
+    const ctx = stack();
+    const unsubscribe = ctx.store.subscribe('demo1', (event) => {
+      if (event.type !== 'approval.requested') return;
+      const answers = Object.fromEntries(event.items.map((item) => [item.callId, choice]));
+      ctx.approvals.resolve('demo1', event.approvalId, answers);
+    });
+
+    const created = await call(ctx.app, '/runs', {
       method: 'POST',
       headers: json,
       body: JSON.stringify({ prompt: 'go', mode: 'demo' }),
     });
     expect(created.status).toBe(201);
+    const events = await readEvents(await call(ctx.app, '/runs/demo1/stream'));
+    unsubscribe();
+    return { ...ctx, events };
+  }
 
-    const events = await readEvents(await call(app, '/runs/demo1/stream'));
-    const types = events.map((e) => e.type);
-    expect(types[0]).toBe('run.started');
-    expect(types.at(-1)).toBe('run.completed');
-    expect(events.filter((e) => e.type === 'tool.decided').map((e) => e.decision)).toEqual([
-      'allow',
-      'allow',
-      'deny',
-    ]);
+  it('pauses for approval and writes only after the user allows it', async () => {
+    const { events, written } = await runWith('allow');
+
+    expect(events[0]?.type).toBe('run.started');
+    expect(events.at(-1)?.type).toBe('run.completed');
+    expect(events.filter((e) => e.type === 'approval.requested')).toHaveLength(1);
+    expect(
+      events.flatMap((e) => (e.type === 'tool.decided' ? [`${e.decision}:${e.by}`] : [])),
+    ).toEqual(['allow:policy', 'allow:policy', 'allow:user']);
+    expect(written).toEqual(['.orbit-demo/notes.txt']);
+  });
+
+  it('does not write when the user rejects', async () => {
+    const { events, written } = await runWith('deny');
+
+    expect(events.at(-1)?.type).toBe('run.completed');
+    expect(written).toEqual([]);
+    expect(events.filter((e) => e.type === 'tool.result')).toHaveLength(2);
   });
 
   it('refuses live mode when it is not configured', async () => {
     const store = new BroadcastingStore(new InMemoryEventStore());
+    const approvals = new ApprovalBroker();
     const app = createApp({
       store,
+      approvals,
       runs: new RunManager({
         store,
         registry: new ToolRegistry(),

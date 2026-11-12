@@ -116,3 +116,67 @@ describe('applyEvents', () => {
     expect(applyEvents(emptyRun, events)).toEqual(incremental);
   });
 });
+
+describe('approvals', () => {
+  const writeRequest: Draft = {
+    type: 'tool.requested',
+    callId: 'w1',
+    tool: 'write_file',
+    args: { path: 'a.txt', content: 'x' },
+    risk: 'write',
+  };
+  const ask: Draft = {
+    type: 'approval.requested',
+    approvalId: 'ap1',
+    items: [{ callId: 'w1', preview: '--- a\n+++ b\n+x' }],
+  };
+
+  it('shows a call as awaiting, with its preview and approval id', () => {
+    const view = applyEvents(emptyRun, log(started, writeRequest, ask));
+    expect(view.tools['w1']).toMatchObject({
+      status: 'awaiting',
+      approvalId: 'ap1',
+      preview: '--- a\n+++ b\n+x',
+    });
+    expect(view.status).toBe('running');
+  });
+
+  it('runs the call once the user allows it', () => {
+    const view = applyEvents(
+      emptyRun,
+      log(started, writeRequest, ask, {
+        type: 'tool.decided',
+        callId: 'w1',
+        decision: 'allow',
+        by: 'user',
+      }),
+    );
+    expect(view.tools['w1']).toMatchObject({ status: 'running', decidedBy: 'user' });
+  });
+
+  it('marks the call denied, by the user, when rejected', () => {
+    const view = applyEvents(
+      emptyRun,
+      log(started, writeRequest, ask, {
+        type: 'tool.decided',
+        callId: 'w1',
+        decision: 'deny',
+        by: 'user',
+      }),
+    );
+    expect(view.tools['w1']).toMatchObject({ status: 'denied', decidedBy: 'user' });
+  });
+
+  it('adds a timeline row for the request', () => {
+    const view = applyEvents(emptyRun, log(started, writeRequest, ask));
+    expect(view.rows.at(-1)).toMatchObject({
+      type: 'approval.requested',
+      label: '等待审批（1 项）',
+    });
+  });
+
+  it('ignores an approval item for a call it has not seen', () => {
+    const view = applyEvents(emptyRun, log(started, ask));
+    expect(view.tools).toEqual({});
+  });
+});

@@ -20,7 +20,7 @@ const STATUS_LABEL = {
 } as const;
 
 export function App() {
-  const { view, connection, error, start, cancel } = useRun();
+  const { view, connection, error, start, cancel, approve } = useRun();
   const [modes, setModes] = useState<RunMode[] | null>(null);
   const [mode, setMode] = useState<RunMode>('demo');
   const [text, setText] = useState(DEFAULT_PROMPT);
@@ -81,7 +81,7 @@ export function App() {
       <main className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_380px]">
         <section className="flex min-h-0 flex-col" aria-label="对话">
           <ScrollArea className="min-h-0 flex-1">
-            <Conversation prompt={sentPrompt} view={view} />
+            <Conversation prompt={sentPrompt} view={view} onApprove={approve} />
           </ScrollArea>
 
           <div className="border-t p-3">

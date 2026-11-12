@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
+import type { ApprovalRequest } from '../../src/agent/approval.js';
+import { createPolicy, defaultPolicyConfig } from '../../src/agent/policy.js';
 import { runAgent, type RunAgentOptions } from '../../src/agent/run-agent.js';
 import { InMemoryEventStore } from '../../src/event-store.js';
 import { checkInvariants } from '../../src/invariants.js';
@@ -240,5 +242,191 @@ describe('runAgent', () => {
 
     expect(result).toEqual({ status: 'failed', reason: 'model error: 503 upstream' });
     expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+});
+
+describe('runAgent: approvals', () => {
+  const written: string[] = [];
+  const write = defineTool({
+    name: 'write',
+    description: 'Write a note.',
+    risk: 'write',
+    schema: z.object({ path: z.string(), text: z.string() }),
+    preview: async ({ path, text }) => `+++ ${path}\n+${text}`,
+    execute: async ({ path }) => {
+      written.push(path);
+      return `wrote ${path}`;
+    },
+  });
+  const askPolicy = createPolicy(defaultPolicyConfig);
+
+  const writeCall = (id: string, path: string) => call(id, 'write', { path, text: 'hi' });
+
+  function withWrite(turns: LlmEvent[][], overrides: Partial<RunAgentOptions> = {}) {
+    written.length = 0;
+    const ctx = setup(turns, { policy: askPolicy, newApprovalId: () => 'a1', ...overrides });
+    ctx.options.registry.register(write);
+    return ctx;
+  }
+
+  it('pauses for the user, then runs what was allowed', async () => {
+    const requests: ApprovalRequest[] = [];
+    const { store, options } = withWrite(
+      [
+        [writeCall('c1', 'a.txt'), finish('tool_calls')],
+        [say('done'), finish()],
+      ],
+      {
+        approver: {
+          request: async (request) => {
+            requests.push(request);
+            return { c1: 'allow' };
+          },
+        },
+      },
+    );
+    const result = await runAgent(options);
+
+    expect(result.status).toBe('completed');
+    expect(written).toEqual(['a.txt']);
+    expect(types(store)).toEqual([
+      'run.started',
+      'tool.requested',
+      'approval.requested',
+      'tool.decided',
+      'tool.result',
+      'message.delta',
+      'run.completed',
+    ]);
+    expect(requests[0]?.items[0]).toMatchObject({ callId: 'c1', preview: '+++ a.txt\n+hi' });
+    expect(store.read('r1').find((e) => e.type === 'tool.decided')).toMatchObject({
+      decision: 'allow',
+      by: 'user',
+    });
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+
+  it('does not run a call the user rejected, and tells the model', async () => {
+    const { store, llm, options } = withWrite(
+      [
+        [writeCall('c1', 'a.txt'), finish('tool_calls')],
+        [say('ok'), finish()],
+      ],
+      { approver: { request: async () => ({ c1: 'deny' }) } },
+    );
+    await runAgent(options);
+
+    expect(written).toEqual([]);
+    expect(types(store)).not.toContain('tool.result');
+    expect(llm.requests[1]?.messages.at(-1)).toMatchObject({
+      role: 'tool',
+      content: 'Denied: the user rejected "write".',
+    });
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+
+  it('asks once for all writes of a turn, and lets reads through the policy', async () => {
+    const requests: ApprovalRequest[] = [];
+    const { store, options } = withWrite(
+      [
+        [
+          writeCall('c1', 'a.txt'),
+          call('c2', 'echo', { text: 'x' }),
+          writeCall('c3', 'b.txt'),
+          finish('tool_calls'),
+        ],
+        [say('done'), finish()],
+      ],
+      {
+        approver: {
+          request: async (request) => {
+            requests.push(request);
+            return { c1: 'allow', c3: 'deny' };
+          },
+        },
+      },
+    );
+    await runAgent(options);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.items.map((i) => i.callId)).toEqual(['c1', 'c3']);
+    expect(written).toEqual(['a.txt']);
+    const decided = store
+      .read('r1')
+      .flatMap((e) => (e.type === 'tool.decided' ? [`${e.callId}:${e.decision}:${e.by}`] : []));
+    expect(decided).toEqual(['c2:allow:policy', 'c1:allow:user', 'c3:deny:user']);
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+
+  it('treats a call missing from the answer as refused', async () => {
+    const { options } = withWrite(
+      [
+        [writeCall('c1', 'a.txt'), finish('tool_calls')],
+        [say('ok'), finish()],
+      ],
+      { approver: { request: async () => ({}) } },
+    );
+    await runAgent(options);
+    expect(written).toEqual([]);
+  });
+
+  it('refuses every ask when no approver is given', async () => {
+    const { store, options } = withWrite([
+      [writeCall('c1', 'a.txt'), finish('tool_calls')],
+      [say('ok'), finish()],
+    ]);
+    await runAgent(options);
+
+    expect(written).toEqual([]);
+    expect(store.read('r1').find((e) => e.type === 'tool.decided')).toMatchObject({
+      decision: 'deny',
+      by: 'user',
+    });
+  });
+
+  it('refuses a call with unusable arguments without bothering the user', async () => {
+    let asked = false;
+    const { store, options } = withWrite(
+      [
+        [call('c1', 'write', { path: 1 }), finish('tool_calls')],
+        [say('ok'), finish()],
+      ],
+      {
+        approver: {
+          request: async () => {
+            asked = true;
+            return { c1: 'allow' };
+          },
+        },
+      },
+    );
+    await runAgent(options);
+
+    expect(asked).toBe(false);
+    expect(types(store)).not.toContain('approval.requested');
+    expect(store.read('r1').find((e) => e.type === 'tool.decided')).toMatchObject({
+      decision: 'deny',
+      by: 'policy',
+    });
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+
+  it('stops waiting when the run is cancelled', async () => {
+    const controller = new AbortController();
+    const { store, options } = withWrite([[writeCall('c1', 'a.txt'), finish('tool_calls')]], {
+      signal: controller.signal,
+      approver: {
+        request: (_request, signal) =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new Error('aborted')));
+            setTimeout(() => controller.abort(), 5);
+          }),
+      },
+    });
+    const result = await runAgent(options);
+
+    expect(result).toEqual({ status: 'failed', reason: 'cancelled' });
+    expect(written).toEqual([]);
+    expect(types(store).at(-1)).toBe('run.failed');
   });
 });

@@ -23,4 +23,26 @@ describe('OrbitEvent', () => {
   it('rejects a non-positive seq', () => {
     expect(OrbitEvent.safeParse({ ...base, seq: 0, type: 'run.completed' }).success).toBe(false);
   });
+
+  it('accepts an approval request covering several calls', () => {
+    const parsed = OrbitEvent.safeParse({
+      ...base,
+      type: 'approval.requested',
+      approvalId: 'a1',
+      items: [
+        { callId: 'c1', preview: '--- a\n+++ b' },
+        { callId: 'c2', preview: '' },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects an approval request with no items or no id', () => {
+    const request = { ...base, type: 'approval.requested' };
+    expect(OrbitEvent.safeParse({ ...request, approvalId: 'a1', items: [] }).success).toBe(false);
+    expect(
+      OrbitEvent.safeParse({ ...request, approvalId: '', items: [{ callId: 'c', preview: '' }] })
+        .success,
+    ).toBe(false);
+  });
 });

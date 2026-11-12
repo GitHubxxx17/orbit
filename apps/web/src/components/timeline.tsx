@@ -7,6 +7,7 @@ const DOT: Record<TimelineRow['type'], string> = {
   'message.delta': 'bg-zinc-500',
   'tool.requested': 'bg-violet-400',
   'tool.decided': 'bg-amber-400',
+  'approval.requested': 'bg-orange-400',
   'tool.result': 'bg-emerald-400',
   'run.completed': 'bg-emerald-400',
   'run.failed': 'bg-red-400',

@@ -3,12 +3,14 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 
+import type { ApprovalResolver } from './approvals.js';
 import type { BroadcastingStore } from './broadcast-store.js';
 import { RunRejected, type RunStarter } from './runs.js';
 
 export interface AppDeps {
   store: BroadcastingStore;
   runs: RunStarter;
+  approvals: ApprovalResolver;
 }
 
 const StartBody = z.object({
@@ -18,10 +20,21 @@ const StartBody = z.object({
 
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 
+const Answers = z.object({
+  answers: z.record(z.string(), z.enum(['allow', 'deny'])),
+});
+
 const isTerminal = (event: OrbitEvent) =>
   event.type === 'run.completed' || event.type === 'run.failed';
 
-export function createApp({ store, runs }: AppDeps) {
+/** Requiring JSON forces a CORS preflight for cross-site requests, which we never approve. */
+function requireJson(contentType: string | undefined) {
+  return contentType?.startsWith('application/json')
+    ? null
+    : { body: { error: 'content-type must be application/json' }, status: 415 as const };
+}
+
+export function createApp({ store, runs, approvals }: AppDeps) {
   const app = new Hono();
 
   // A web page in the user's browser must not be able to drive this local server through DNS
@@ -37,10 +50,8 @@ export function createApp({ store, runs }: AppDeps) {
   app.get('/modes', (c) => c.json({ modes: runs.modes() }));
 
   app.post('/runs', async (c) => {
-    // Requiring JSON forces a CORS preflight for cross-site requests, which we never approve.
-    if (!c.req.header('content-type')?.startsWith('application/json')) {
-      return c.json({ error: 'content-type must be application/json' }, 415);
-    }
+    const notJson = requireJson(c.req.header('content-type'));
+    if (notJson) return c.json(notJson.body, notJson.status);
     const body = StartBody.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'invalid request body' }, 400);
 
@@ -50,6 +61,23 @@ export function createApp({ store, runs }: AppDeps) {
       if (error instanceof RunRejected) return c.json({ error: error.message }, error.status);
       throw error;
     }
+  });
+
+  // The user's answer to a pending approval. Anything not explicitly allowed counts as refused.
+  app.post('/runs/:runId/approvals/:approvalId', async (c) => {
+    const notJson = requireJson(c.req.header('content-type'));
+    if (notJson) return c.json(notJson.body, notJson.status);
+    const body = Answers.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+
+    const outcome = approvals.resolve(
+      c.req.param('runId'),
+      c.req.param('approvalId'),
+      body.data.answers,
+    );
+    if (outcome === 'unknown') return c.json({ error: 'no such pending approval' }, 404);
+    if (outcome === 'invalid') return c.json({ error: 'answers name unknown calls' }, 400);
+    return c.json({ ok: true });
   });
 
   app.post('/runs/:runId/cancel', (c) => {

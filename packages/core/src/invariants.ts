@@ -7,6 +7,8 @@ export type ViolationCode =
   | 'decision-without-request'
   | 'duplicate-decision'
   | 'result-without-allow'
+  | 'approval-unknown-call'
+  | 'user-decision-without-approval'
   | 'unresolved-tool-call';
 
 export interface Violation {
@@ -26,6 +28,7 @@ export function checkInvariants(events: readonly OrbitEvent[]): Violation[] {
     violations.push({ code, seq, message });
 
   const requested = new Set<string>();
+  const approvalAsked = new Set<string>();
   const decision = new Map<string, 'allow' | 'deny'>();
   const resolved = new Set<string>();
   let terminalSeq: number | null = null;
@@ -45,7 +48,20 @@ export function checkInvariants(events: readonly OrbitEvent[]): Violation[] {
       case 'tool.requested':
         requested.add(event.callId);
         break;
+      case 'approval.requested':
+        for (const item of event.items) {
+          if (requested.has(item.callId)) approvalAsked.add(item.callId);
+          else add('approval-unknown-call', event.seq, `no request for call ${item.callId}`);
+        }
+        break;
       case 'tool.decided':
+        if (event.by === 'user' && !approvalAsked.has(event.callId)) {
+          add(
+            'user-decision-without-approval',
+            event.seq,
+            `call ${event.callId} was decided by the user but never put up for approval`,
+          );
+        }
         if (!requested.has(event.callId)) {
           add('decision-without-request', event.seq, `no request for call ${event.callId}`);
         } else if (decision.has(event.callId)) {

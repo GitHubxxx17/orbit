@@ -8,6 +8,8 @@
 - **Projection** — state derived from events (UI messages, pending approvals, file changes).
 - **Tool call** — a request by the model to run a tool; has a `callId` and a `risk` level.
 - **Risk** — `read` (auto-allow), `write` (batched approval), `dangerous` (hard block).
+- **Policy** — maps a tool call to `allow`, `ask` or `deny` from declarative rules.
+- **Approval** — one pause per model turn in which the user reviews every `ask` call with its preview.
 
 ## Invariants
 
@@ -15,6 +17,8 @@
 2. `seq` per run starts at 1 and increases by 1 with no gaps.
 3. Every `tool.requested` is eventually followed by a `tool.decided` and, if allowed, a `tool.result`
    with the same `callId`.
+   3a. A `tool.decided` made by the user follows an `approval.requested` that named that call, and an
+   approval only names calls that were requested (see ADR 0002).
 4. A run ends with exactly one `run.completed` or `run.failed`.
 5. State shown in the UI is a function of the event log only.
 
@@ -34,7 +38,8 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Tool registry, agent loop         | implemented |
 | Read-only file tools, sandbox     | implemented |
 | SSE run API, demo model, chat UI  | implemented |
-| Policy engine, approvals, sandbox | planned     |
+| Policy rules, batched approval    | implemented |
+| Write tool with diff preview      | implemented |
 | SQLite persistence, replay, fork  | planned     |
 | MCP, evaluation, desktop shell    | planned     |
 
