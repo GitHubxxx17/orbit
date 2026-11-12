@@ -1,0 +1,148 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { ToolRegistry, type Tool } from '@orbit/core';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { createReadOnlyTools, Sandbox } from '../src/index.js';
+
+let base: string;
+let workspace: string;
+let outside: string;
+let tools: Record<string, Tool>;
+
+const ctx = { signal: new AbortController().signal };
+const run = (name: string, args: unknown) => {
+  const tool = tools[name];
+  if (!tool) throw new Error(`no tool ${name}`);
+  return tool.run(args, ctx);
+};
+
+beforeAll(async () => {
+  base = await mkdtemp(path.join(tmpdir(), 'orbit-tools-'));
+  workspace = path.join(base, 'ws');
+  outside = path.join(base, 'outside');
+  await mkdir(path.join(workspace, 'src'), { recursive: true });
+  await mkdir(path.join(workspace, 'node_modules/pkg'), { recursive: true });
+  await mkdir(path.join(workspace, '.git'), { recursive: true });
+  await mkdir(outside);
+
+  await writeFile(path.join(workspace, 'src/a.ts'), 'const alpha = 1;\nconst Beta = 2;\n');
+  await writeFile(path.join(workspace, 'src/b.ts'), 'export const gamma = alpha;\n');
+  await writeFile(path.join(workspace, 'README.md'), '# hello\n');
+  await writeFile(path.join(workspace, '.env'), 'TOKEN=super-secret\n');
+  await writeFile(path.join(workspace, '.env.example'), 'TOKEN=\n');
+  await writeFile(path.join(workspace, '.git/config'), 'url = https://x:secret@host\n');
+  await writeFile(path.join(workspace, 'node_modules/pkg/index.js'), 'alpha');
+  await writeFile(path.join(workspace, 'image.bin'), Buffer.from([1, 2, 0, 3]));
+  await writeFile(
+    path.join(workspace, 'long.txt'),
+    Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n'),
+  );
+  await writeFile(path.join(outside, 'secret.txt'), 'outside secret');
+  await symlink(outside, path.join(workspace, 'escape'));
+  await symlink(path.join(outside, 'secret.txt'), path.join(workspace, 'link.txt'));
+
+  tools = Object.fromEntries((await createReadOnlyTools(workspace)).map((t) => [t.name, t]));
+});
+
+afterAll(async () => {
+  await rm(base, { recursive: true, force: true });
+});
+
+describe('Sandbox', () => {
+  it('rejects paths that leave the workspace', async () => {
+    const sandbox = await Sandbox.create(workspace);
+    await expect(sandbox.resolve('../outside/secret.txt')).rejects.toThrow('outside the workspace');
+    await expect(sandbox.resolve(path.join(outside, 'secret.txt'))).rejects.toThrow('outside');
+    await expect(sandbox.resolve('src\0/a.ts')).rejects.toThrow('NUL');
+  });
+
+  it('rejects symlinks that point outside the workspace', async () => {
+    const sandbox = await Sandbox.create(workspace);
+    await expect(sandbox.resolve('escape/secret.txt')).rejects.toThrow('outside the workspace');
+    await expect(sandbox.resolve('link.txt')).rejects.toThrow('outside the workspace');
+  });
+
+  it('rejects credential files and ignored directories but allows .env.example', async () => {
+    const sandbox = await Sandbox.create(workspace);
+    await expect(sandbox.resolve('.env')).rejects.toThrow('not allowed');
+    await expect(sandbox.resolve('.git/config')).rejects.toThrow('not allowed');
+    await expect(sandbox.resolve('.env.example')).resolves.toContain('.env.example');
+  });
+});
+
+describe('list_dir', () => {
+  it('lists entries and hides noise and secrets', async () => {
+    const out = await run('list_dir', {});
+    expect(out).toContain('dir  src');
+    expect(out).toContain('file README.md');
+    expect(out).toContain('file .env.example');
+    expect(out).not.toContain('node_modules');
+    expect(out).not.toContain('.git\n');
+    expect(out).not.toMatch(/\.env$/m);
+  });
+
+  it('refuses a file and an escaping path', async () => {
+    await expect(run('list_dir', { path: 'README.md' })).rejects.toThrow('not a directory');
+    await expect(run('list_dir', { path: '..' })).rejects.toThrow('outside the workspace');
+  });
+});
+
+describe('read_file', () => {
+  it('returns numbered lines', async () => {
+    await expect(run('read_file', { path: 'src/a.ts' })).resolves.toBe(
+      '1\tconst alpha = 1;\n2\tconst Beta = 2;',
+    );
+  });
+
+  it('pages with offset and limit and says how to continue', async () => {
+    const out = await run('read_file', { path: 'long.txt', offset: 3, limit: 2 });
+    expect(out).toBe('3\tline 3\n4\tline 4\n[showing lines 3-4 of 10; call again with offset=5]');
+  });
+
+  it('refuses secrets, binary files, and offsets past the end', async () => {
+    await expect(run('read_file', { path: '.env' })).rejects.toThrow('not allowed');
+    await expect(run('read_file', { path: 'image.bin' })).rejects.toThrow('binary');
+    await expect(run('read_file', { path: 'long.txt', offset: 99 })).rejects.toThrow(
+      'past the end',
+    );
+    await expect(run('read_file', { path: 'missing.txt' })).rejects.toThrow('no such file');
+  });
+});
+
+describe('grep', () => {
+  it('finds matches with path and line number, in a stable order', async () => {
+    const out = await run('grep', { pattern: 'alpha' });
+    expect(out).toBe('src/a.ts:1: const alpha = 1;\nsrc/b.ts:1: export const gamma = alpha;');
+  });
+
+  it('supports case-insensitive search and a single-file target', async () => {
+    expect(await run('grep', { pattern: 'beta', ignoreCase: true, path: 'src/a.ts' })).toBe(
+      'src/a.ts:2: const Beta = 2;',
+    );
+    expect(await run('grep', { pattern: 'beta' })).toBe('no matches');
+  });
+
+  it('never searches secrets, ignored directories, or symlink targets', async () => {
+    expect(await run('grep', { pattern: 'secret' })).toBe('no matches');
+  });
+
+  it('reports an invalid regular expression', async () => {
+    await expect(run('grep', { pattern: '(' })).rejects.toThrow('invalid regular expression');
+  });
+});
+
+describe('tool specs', () => {
+  it('require only the fields without defaults', () => {
+    const registry = new ToolRegistry();
+    for (const tool of Object.values(tools)) registry.register(tool);
+    const required = Object.fromEntries(
+      registry
+        .specs()
+        .map((spec) => [spec.name, (spec.parameters as { required?: string[] }).required]),
+    );
+    expect(required).toEqual({ list_dir: undefined, read_file: ['path'], grep: ['pattern'] });
+  });
+});
