@@ -15,6 +15,11 @@ export interface Tool {
   schema: z.ZodType;
   /** Validates `rawArgs` against `schema`, then runs. Throws on invalid arguments or failure. */
   run(rawArgs: unknown, context: ToolContext): Promise<string>;
+  /**
+   * Describe what `run` would change without changing anything (for a write: a diff). Shown to the
+   * user when the call needs approval. Throws on invalid arguments, like `run`.
+   */
+  preview?(rawArgs: unknown, context: ToolContext): Promise<string>;
 }
 
 export interface ToolDefinition<S extends z.ZodType> {
@@ -23,10 +28,12 @@ export interface ToolDefinition<S extends z.ZodType> {
   risk: RiskLevel;
   schema: S;
   execute(args: z.infer<S>, context: ToolContext): Promise<string>;
+  preview?(args: z.infer<S>, context: ToolContext): Promise<string>;
 }
 
 /** Define a tool whose `execute` receives arguments already parsed and typed by its schema. */
 export function defineTool<S extends z.ZodType>(definition: ToolDefinition<S>): Tool {
+  const { preview } = definition;
   return {
     name: definition.name,
     description: definition.description,
@@ -34,5 +41,11 @@ export function defineTool<S extends z.ZodType>(definition: ToolDefinition<S>): 
     schema: definition.schema,
     // async so that invalid arguments surface as a rejected promise, never a synchronous throw.
     run: async (rawArgs, context) => definition.execute(definition.schema.parse(rawArgs), context),
+    ...(preview
+      ? {
+          preview: async (rawArgs: unknown, context: ToolContext) =>
+            preview(definition.schema.parse(rawArgs), context),
+        }
+      : {}),
   };
 }

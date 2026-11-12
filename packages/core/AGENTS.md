@@ -10,3 +10,6 @@ Event store and the agent runtime.
   tests can fake.
 - Add a persistent store (SQLite) as another `EventStore` implementation, not by changing callers.
   Run the same contract tests against every implementation.
+- Policy decisions are pure and synchronous. `dangerous` is always refused and an unknown tool is
+  always refused; neither can be changed by configuration. Waiting for the user goes through the
+  injected `Approver`, never through UI code (ADR 0002).

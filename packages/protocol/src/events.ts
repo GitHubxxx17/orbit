@@ -39,6 +39,24 @@ export const OrbitEvent = z.discriminatedUnion('type', [
     decision: z.enum(['allow', 'deny']),
     by: z.enum(['policy', 'user']),
   }),
+  /**
+   * The policy could not decide alone, so the run pauses until the user does. One event covers
+   * every call of a model turn that needs approval, so the user reviews them together.
+   */
+  z.object({
+    ...base,
+    type: z.literal('approval.requested'),
+    approvalId: z.string().min(1),
+    items: z
+      .array(
+        z.object({
+          callId: z.string().min(1),
+          /** What would change, as a unified diff or a short description. */
+          preview: z.string(),
+        }),
+      )
+      .min(1),
+  }),
   z.object({
     ...base,
     type: z.literal('tool.result'),

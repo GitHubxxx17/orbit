@@ -73,3 +73,31 @@ describe('checkInvariants', () => {
     expect(codes(log(start, req, allow, done))).toContain('unresolved-tool-call');
   });
 });
+
+describe('checkInvariants: approvals', () => {
+  const ask = {
+    type: 'approval.requested',
+    approvalId: 'a1',
+    items: [{ callId: 'c1', preview: '+x' }],
+  };
+  const userAllow = { type: 'tool.decided', callId: 'c1', decision: 'allow', by: 'user' };
+
+  it('accepts a call that was put up for approval and then decided by the user', () => {
+    expect(codes(log(start, req, ask, userAllow, result, done))).toEqual([]);
+  });
+
+  it('flags a user decision that was never put up for approval', () => {
+    expect(codes(log(start, req, userAllow, result, done))).toContain(
+      'user-decision-without-approval',
+    );
+  });
+
+  it('flags an approval request for a call that was never requested', () => {
+    expect(codes(log(start, ask, done))).toContain('approval-unknown-call');
+  });
+
+  it('accepts a denial by the user without a result', () => {
+    const userDeny = { ...userAllow, decision: 'deny' };
+    expect(codes(log(start, req, ask, userDeny, done))).toEqual([]);
+  });
+});

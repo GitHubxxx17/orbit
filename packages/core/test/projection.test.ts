@@ -80,3 +80,29 @@ describe('projectRun', () => {
     expect(events.reduce(applyEvent, initialRunState)).toEqual(projectRun(events));
   });
 });
+
+describe('projectRun: approvals', () => {
+  it('marks a call as awaiting until the user decides', () => {
+    const s = store();
+    s.append('r', { type: 'run.started', agentId: 'a', workspace: '/w' });
+    s.append('r', {
+      type: 'tool.requested',
+      callId: 'c1',
+      tool: 'write_file',
+      args: {},
+      risk: 'write',
+    });
+    s.append('r', {
+      type: 'approval.requested',
+      approvalId: 'a1',
+      items: [{ callId: 'c1', preview: '+x' }],
+    });
+    expect(projectRun(s.read('r')).toolCalls[0]?.status).toBe('awaiting');
+
+    s.append('r', { type: 'tool.decided', callId: 'c1', decision: 'allow', by: 'user' });
+    expect(projectRun(s.read('r')).toolCalls[0]).toMatchObject({
+      status: 'running',
+      decidedBy: 'user',
+    });
+  });
+});
