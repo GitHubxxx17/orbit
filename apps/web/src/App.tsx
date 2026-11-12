@@ -1,16 +1,19 @@
-import { Orbit, Send, Square } from 'lucide-react';
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { Orbit, PanelLeft, PanelRight } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
-import { fetchModes, type RunMode } from '@/api';
+import { fetchInfo, type ApprovalMode, type RunMode, type ServerInfo } from '@/api';
+import { Composer } from '@/components/composer';
 import { Conversation } from '@/components/conversation';
-import { Timeline } from '@/components/timeline';
+import { EmptyState } from '@/components/empty-state';
+import { RightPanel } from '@/components/right-panel';
+import { Sidebar } from '@/components/sidebar';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Textarea } from '@/components/ui/textarea';
 import { useRun } from '@/hooks/use-run';
-
-const DEFAULT_PROMPT = '帮我看看这个工作区里有什么，并读一下 package.json。';
+import { useSessions } from '@/hooks/use-sessions';
+import { useTheme } from '@/hooks/use-theme';
+import { collectChanges } from '@/state/changes';
 
 const STATUS_LABEL = {
   idle: '空闲',
@@ -20,124 +23,176 @@ const STATUS_LABEL = {
 } as const;
 
 export function App() {
-  const { session, view, connection, error, start, cancel, approve, newSession } = useRun();
-  const [modes, setModes] = useState<RunMode[] | null>(null);
+  const {
+    session,
+    sessionId,
+    view,
+    connection,
+    error,
+    start,
+    cancel,
+    approve,
+    newSession,
+    openSession,
+  } = useRun();
+  const { theme, cycle: cycleTheme } = useTheme();
+
+  const [info, setInfo] = useState<ServerInfo | null>(null);
+  const [infoFailed, setInfoFailed] = useState(false);
   const [mode, setMode] = useState<RunMode>('demo');
-  const [text, setText] = useState(DEFAULT_PROMPT);
-  const [modesError, setModesError] = useState(false);
+  const [approval, setApproval] = useState<ApprovalMode>('ask');
+  const [text, setText] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(true);
 
   useEffect(() => {
-    fetchModes().then(setModes, () => setModesError(true));
+    fetchInfo().then(setInfo, () => setInfoFailed(true));
   }, []);
 
+  // The list is fetched again when a run starts or ends.
+  const { sessions, failed: sessionsFailed } = useSessions(
+    `${session.turns.length}:${view.status}:${sessionId ?? ''}`,
+  );
+
+  const changes = useMemo(() => collectChanges(session.turns), [session.turns]);
+
   const running = view.status === 'running';
-  const canSend = text.trim() !== '' && !running && modes !== null;
+  const hasConversation = session.turns.length > 0;
+  const canSend = text.trim() !== '' && !running && info !== null;
+  const workspaceName = info?.workspaceName ?? '工作区';
+  const modelLabel = mode === 'live' ? (info?.liveModel ?? '真实模型') : '演示模型';
+  const title = session.turns[0]?.prompt ?? '新会话';
 
   const send = () => {
     if (!canSend) return;
     const prompt = text.trim();
     setText('');
     // If it could not be sent, give the text back so it is not lost.
-    void start(prompt, mode).then((sent) => {
+    void start(prompt, mode, approval).then((sent) => {
       if (!sent) setText(prompt);
     });
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      send();
-    }
-  };
+  const composer = (
+    <Composer
+      value={text}
+      onChange={setText}
+      onSend={send}
+      onStop={() => void cancel()}
+      running={running}
+      canSend={canSend}
+      mode={mode}
+      onMode={setMode}
+      availableModes={info?.modes ?? ['demo']}
+      approval={approval}
+      onApproval={setApproval}
+      workspaceName={workspaceName}
+      modelLabel={modelLabel}
+      placeholder={hasConversation ? '继续追问…（Enter 发送，Shift+Enter 换行）' : '随心输入'}
+    />
+  );
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      <header className="flex items-center gap-3 border-b px-4 py-3">
-        <Orbit aria-hidden className="size-5 text-sky-400" />
-        <h1 className="text-base font-semibold tracking-tight">星轨 Orbit</h1>
-        <Badge variant={running ? 'default' : 'secondary'}>{STATUS_LABEL[view.status]}</Badge>
-        {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
-
-        <Button
-          size="sm"
-          variant="outline"
-          className="ml-auto"
-          disabled={session.turns.length === 0}
-          onClick={newSession}
-        >
-          新会话
-        </Button>
-
-        <div className="flex items-center gap-2 text-sm" role="group" aria-label="运行模式">
-          {(['demo', 'live'] as const).map((value) => (
-            <Button
-              key={value}
-              size="sm"
-              variant={mode === value ? 'default' : 'outline'}
-              aria-pressed={mode === value}
-              disabled={running || !modes?.includes(value)}
-              title={modes?.includes(value) ? undefined : '服务端没有配置模型，不能使用真实模式'}
-              onClick={() => setMode(value)}
-            >
-              {value === 'demo' ? '演示' : '真实模型'}
-            </Button>
-          ))}
+    <div className="flex h-screen bg-background text-foreground">
+      {sidebarOpen && (
+        <div className="hidden md:block">
+          <Sidebar
+            workspaceName={workspaceName}
+            sessions={sessions}
+            failed={sessionsFailed}
+            activeId={sessionId}
+            onSelect={(id) => void openSession(id)}
+            onNew={newSession}
+          />
         </div>
-      </header>
-
-      {modesError && (
-        <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
-          连不上服务端。请先在另一个终端运行 pnpm --filter @orbit/server dev。
-        </p>
       )}
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="flex min-h-0 flex-col" aria-label="对话">
-          <ScrollArea className="min-h-0 flex-1">
-            <Conversation session={session} onApprove={approve} />
-          </ScrollArea>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden md:inline-flex"
+            onClick={() => setSidebarOpen((open) => !open)}
+            aria-label={sidebarOpen ? '收起会话栏' : '展开会话栏'}
+            aria-expanded={sidebarOpen}
+          >
+            <PanelLeft aria-hidden className="size-4" />
+          </Button>
+          <Orbit aria-hidden className="size-5 text-sky-500" />
+          <span className="text-sm font-semibold tracking-tight">星轨</span>
+          <span aria-hidden className="text-muted-foreground">
+            /
+          </span>
+          <h1 className="min-w-0 flex-1 truncate text-sm text-muted-foreground" title={title}>
+            {title}
+          </h1>
 
-          <div className="border-t p-3">
-            {error && (
-              <p role="alert" className="mb-2 text-sm text-destructive">
-                {error}
-              </p>
+          {hasConversation && (
+            <Badge variant={running ? 'default' : 'secondary'}>{STATUS_LABEL[view.status]}</Badge>
+          )}
+          {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
+          <ThemeToggle theme={theme} onCycle={cycleTheme} />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden lg:inline-flex"
+            onClick={() => setPanelOpen((open) => !open)}
+            aria-label={panelOpen ? '收起侧栏' : '展开侧栏'}
+            aria-expanded={panelOpen}
+          >
+            <PanelRight aria-hidden className="size-4" />
+          </Button>
+        </header>
+
+        {infoFailed && (
+          <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
+            连不上服务端。请先在另一个终端启动服务端：pnpm --filter @orbit/server dev。
+          </p>
+        )}
+
+        <div className="flex min-h-0 flex-1">
+          <main className="flex min-w-0 flex-1 flex-col" aria-label="对话">
+            {hasConversation ? (
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <Conversation
+                    session={session}
+                    liveModel={info?.liveModel ?? null}
+                    onApprove={approve}
+                  />
+                </div>
+                <div className="mx-auto w-full max-w-3xl p-3">
+                  {error && (
+                    <p role="alert" className="mb-2 text-sm text-destructive">
+                      {error}
+                    </p>
+                  )}
+                  {composer}
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-8 p-6">
+                <EmptyState workspaceName={workspaceName} onPick={setText} />
+                <div className="w-full max-w-2xl">
+                  {error && (
+                    <p role="alert" className="mb-2 text-sm text-destructive">
+                      {error}
+                    </p>
+                  )}
+                  {composer}
+                </div>
+              </div>
             )}
-            <div className="flex items-end gap-2">
-              <Textarea
-                aria-label="给智能体的指令"
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                onKeyDown={onKeyDown}
-                rows={2}
-                className="min-h-0 flex-1 resize-none"
-                placeholder="输入指令，Ctrl/⌘ + Enter 发送"
-              />
-              {running ? (
-                <Button variant="destructive" onClick={() => void cancel()}>
-                  <Square aria-hidden data-icon="inline-start" />
-                  停止
-                </Button>
-              ) : (
-                <Button onClick={send} disabled={!canSend}>
-                  <Send aria-hidden data-icon="inline-start" />
-                  运行
-                </Button>
-              )}
-            </div>
-          </div>
-        </section>
+          </main>
 
-        <aside className="hidden min-h-0 flex-col border-l md:flex" aria-label="事件时间线">
-          <h2 className="border-b px-4 py-3 text-sm font-medium">
-            事件时间线
-            <span className="ml-2 font-mono text-xs text-muted-foreground">{view.lastSeq}</span>
-          </h2>
-          <ScrollArea className="min-h-0 flex-1">
-            <Timeline rows={view.rows} />
-          </ScrollArea>
-        </aside>
-      </main>
+          {panelOpen && (
+            <div className="hidden lg:block">
+              <RightPanel rows={view.rows} lastSeq={view.lastSeq} changes={changes} />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

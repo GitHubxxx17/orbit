@@ -12,3 +12,5 @@ Local HTTP server (Hono).
 - Never log request bodies or headers that may contain API keys.
 - A session id is only valid if the server issued it, and a session has one run at a time.
   Sessions live in memory until events are persisted.
+- API response shapes live in `@orbit/protocol` (`src/api.ts`) so the web app can validate them.
+  Session titles and snippets are derived from event logs (`session-summary.ts`), never stored.

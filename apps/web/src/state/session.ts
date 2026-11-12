@@ -15,6 +15,8 @@ export type SessionAction =
   | { type: 'new-turn'; prompt: string }
   /** The message could not be sent, so take the placeholder back out. */
   | { type: 'drop-turn' }
+  /** Replace everything with turns rebuilt from stored runs (opening an earlier session). */
+  | { type: 'load'; turns: RunView[] }
   | { type: 'events'; events: OrbitEvent[] };
 
 export function sessionReducer(session: SessionView, action: SessionAction): SessionView {
@@ -23,6 +25,8 @@ export function sessionReducer(session: SessionView, action: SessionAction): Ses
       return emptySession;
     case 'new-turn':
       return { turns: [...session.turns, { ...emptyRun, prompt: action.prompt }] };
+    case 'load':
+      return { turns: action.turns };
     case 'drop-turn':
       return { turns: session.turns.slice(0, -1) };
     case 'events': {

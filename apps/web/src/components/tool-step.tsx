@@ -6,11 +6,15 @@ import type { ToolCard, ToolStatus } from '@/state/timeline';
 
 const STATUS: Record<ToolStatus, { label: string; className: string; icon: LucideIcon }> = {
   pending: { label: '等待策略', className: 'text-muted-foreground', icon: LoaderCircle },
-  awaiting: { label: '等待你审批', className: 'text-orange-400', icon: CircleHelp },
-  running: { label: '执行中', className: 'text-sky-400', icon: LoaderCircle },
-  done: { label: '成功', className: 'text-emerald-400', icon: CircleCheck },
-  failed: { label: '失败', className: 'text-amber-400', icon: CircleX },
-  denied: { label: '已拒绝', className: 'text-red-400', icon: Ban },
+  awaiting: {
+    label: '等待你审批',
+    className: 'text-orange-600 dark:text-orange-400',
+    icon: CircleHelp,
+  },
+  running: { label: '执行中', className: 'text-sky-600 dark:text-sky-400', icon: LoaderCircle },
+  done: { label: '成功', className: 'text-emerald-600 dark:text-emerald-400', icon: CircleCheck },
+  failed: { label: '失败', className: 'text-amber-600 dark:text-amber-400', icon: CircleX },
+  denied: { label: '已拒绝', className: 'text-red-600 dark:text-red-400', icon: Ban },
 };
 
 const MAX_OUTPUT_LINES = 12;
@@ -56,7 +60,7 @@ function ToolStepView({ card }: { card: ToolCard }) {
       </details>
 
       {card.status === 'denied' && (
-        <p className="mt-1 ml-7 text-xs text-red-400">
+        <p className="mt-1 ml-7 text-xs text-red-600 dark:text-red-400">
           {card.decidedBy === 'user' ? '你拒绝了这次调用' : '策略没有放行'}，工具没有被执行。
         </p>
       )}

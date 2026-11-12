@@ -22,8 +22,11 @@ const workspace = process.env['ORBIT_WORKSPACE'] ?? process.cwd();
 
 // Live mode is optional: without model settings only the scripted demo is available.
 let liveLlm: LlmClient | undefined;
+let liveModel: string | undefined;
 try {
-  liveLlm = createOpenAICompatibleClient(loadLlmConfig(process.env));
+  const config = loadLlmConfig(process.env);
+  liveLlm = createOpenAICompatibleClient(config);
+  liveModel = config.model;
 } catch (error) {
   console.log(
     `live mode disabled (${error instanceof Error ? error.message : 'invalid settings'})`,
@@ -44,6 +47,7 @@ const runs = new RunManager({
   approver: approvals,
   demoLlm: createDemoLlm(),
   ...(liveLlm ? { liveLlm } : {}),
+  ...(liveModel ? { liveModel } : {}),
 });
 const app = createApp({ store, runs, approvals });
 

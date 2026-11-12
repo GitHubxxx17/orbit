@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ServerInfo, SessionSummary } from '../src/api.js';
 import { OrbitEvent } from '../src/events.js';
 
 const base = { id: 'e1', runId: 'r1', seq: 1, ts: 1 };
@@ -49,5 +50,30 @@ describe('OrbitEvent', () => {
   it('accepts a user message and rejects an empty one', () => {
     expect(OrbitEvent.safeParse({ ...base, type: 'user.message', text: 'hi' }).success).toBe(true);
     expect(OrbitEvent.safeParse({ ...base, type: 'user.message', text: '' }).success).toBe(false);
+  });
+});
+
+describe('API shapes', () => {
+  it('accepts a session summary and rejects an unknown status', () => {
+    const summary = {
+      sessionId: 's1',
+      title: 't',
+      snippet: '',
+      runCount: 1,
+      status: 'idle',
+      updatedAt: 5,
+    };
+    expect(SessionSummary.safeParse(summary).success).toBe(true);
+    expect(SessionSummary.safeParse({ ...summary, status: 'weird' }).success).toBe(false);
+    expect(SessionSummary.safeParse({ ...summary, sessionId: '' }).success).toBe(false);
+  });
+
+  it('accepts server info with or without a live model', () => {
+    const info = { workspace: '/w', workspaceName: 'w', liveModel: null, modes: ['demo'] };
+    expect(ServerInfo.safeParse(info).success).toBe(true);
+    expect(ServerInfo.safeParse({ ...info, liveModel: 'm', modes: ['demo', 'live'] }).success).toBe(
+      true,
+    );
+    expect(ServerInfo.safeParse({ ...info, modes: ['other'] }).success).toBe(false);
   });
 });

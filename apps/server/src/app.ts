@@ -16,6 +16,7 @@ export interface AppDeps {
 const StartBody = z.object({
   prompt: z.string().trim().min(1).max(4000),
   mode: z.enum(['demo', 'live']).default('demo'),
+  approval: z.enum(['ask', 'readonly']).default('ask'),
   /** Continue an earlier conversation; omit it to start a new one. */
   sessionId: z.string().min(1).optional(),
 });
@@ -50,6 +51,18 @@ export function createApp({ store, runs, approvals }: AppDeps) {
   app.get('/health', (c) => c.json({ ok: true }));
 
   app.get('/modes', (c) => c.json({ modes: runs.modes() }));
+
+  app.get('/info', (c) => c.json({ ...runs.info(), modes: runs.modes() }));
+
+  app.get('/sessions', (c) => c.json({ sessions: runs.listSessions() }));
+
+  // The run ids of one conversation; the client replays each run's events to rebuild the screen.
+  app.get('/sessions/:sessionId', (c) => {
+    const runIds = runs.sessionRuns(c.req.param('sessionId'));
+    return runIds
+      ? c.json({ sessionId: c.req.param('sessionId'), runIds })
+      : c.json({ error: 'unknown session' }, 404);
+  });
 
   app.post('/runs', async (c) => {
     const notJson = requireJson(c.req.header('content-type'));

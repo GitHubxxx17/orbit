@@ -1,9 +1,19 @@
 import { OrbitEvent } from '@orbit/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
-import { cancelRun, startRun, streamUrl, submitApproval, type Answers, type RunMode } from '@/api';
-import { emptyRun } from '@/state/timeline';
+import {
+  cancelRun,
+  fetchRunEvents,
+  fetchSessionRuns,
+  startRun,
+  streamUrl,
+  submitApproval,
+  type Answers,
+  type ApprovalMode,
+  type RunMode,
+} from '@/api';
 import { emptySession, sessionReducer } from '@/state/session';
+import { applyEvents, emptyRun } from '@/state/timeline';
 
 export type Connection = 'closed' | 'open' | 'reconnecting';
 
@@ -13,7 +23,7 @@ export type Connection = 'closed' | 'open' | 'reconnecting';
  */
 export function useRun() {
   const [session, dispatch] = useReducer(sessionReducer, emptySession);
-  const sessionId = useRef<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const view = session.turns.at(-1) ?? emptyRun;
   const [connection, setConnection] = useState<Connection>('closed');
   const [error, setError] = useState<string | null>(null);
@@ -34,9 +44,10 @@ export function useRun() {
     if (events.length > 0) dispatch({ type: 'events', events });
   }, []);
 
+  /** Follow a run's stream, starting after event `after` (0 = from the beginning). */
   const follow = useCallback(
-    (runId: string) => {
-      const es = new EventSource(streamUrl(runId));
+    (runId: string, after = 0) => {
+      const es = new EventSource(streamUrl(runId, after));
       source.current = es;
       es.onopen = () => setConnection('open');
       // EventSource reconnects by itself and resumes from Last-Event-ID.
@@ -63,20 +74,42 @@ export function useRun() {
   );
 
   const start = useCallback(
-    async (prompt: string, mode: RunMode): Promise<boolean> => {
+    async (prompt: string, mode: RunMode, approval: ApprovalMode): Promise<boolean> => {
       close();
       buffer.current = [];
       setError(null);
       dispatch({ type: 'new-turn', prompt });
       try {
-        const started = await startRun(prompt, mode, sessionId.current ?? undefined);
-        sessionId.current = started.sessionId;
+        const started = await startRun(prompt, mode, approval, sessionId ?? undefined);
+        setSessionId(started.sessionId);
         follow(started.runId);
         return true;
       } catch (e) {
         dispatch({ type: 'drop-turn' });
         setError(e instanceof Error ? e.message : String(e));
         return false;
+      }
+    },
+    [close, follow, sessionId],
+  );
+
+  /** Open an earlier conversation: rebuild every turn from the stored events of its runs. */
+  const openSession = useCallback(
+    async (id: string) => {
+      close();
+      buffer.current = [];
+      setError(null);
+      try {
+        const runIds = await fetchSessionRuns(id);
+        const logs = await Promise.all(runIds.map((runId) => fetchRunEvents(runId)));
+        const turns = logs.map((events) => applyEvents(emptyRun, events));
+        dispatch({ type: 'load', turns });
+        setSessionId(id);
+        // A run that is still going keeps streaming from where the stored events stop.
+        const last = turns.at(-1);
+        if (last?.status === 'running' && last.runId) follow(last.runId, last.lastSeq);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
       }
     },
     [close, follow],
@@ -88,7 +121,7 @@ export function useRun() {
     if (view.status === 'running' && view.runId) void cancelRun(view.runId).catch(() => undefined);
     close();
     buffer.current = [];
-    sessionId.current = null;
+    setSessionId(null);
     setError(null);
     dispatch({ type: 'new-session' });
   }, [close, view.status, view.runId]);
@@ -119,5 +152,16 @@ export function useRun() {
     [],
   );
 
-  return { session, view, connection, error, start, cancel, approve, newSession };
+  return {
+    session,
+    sessionId,
+    view,
+    connection,
+    error,
+    start,
+    cancel,
+    approve,
+    newSession,
+    openSession,
+  };
 }

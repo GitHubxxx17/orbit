@@ -48,7 +48,7 @@ export function ApprovalPanel({ approvalId, cards, onSubmit }: Props) {
       className="my-3 rounded-xl border border-orange-400/40 bg-orange-400/5 p-3"
     >
       <h2 id={headingId} className="flex items-center gap-2 text-sm font-medium">
-        <ShieldQuestion aria-hidden className="size-4 text-orange-400" />
+        <ShieldQuestion aria-hidden className="size-4 text-orange-600 dark:text-orange-400" />
         需要你确认 {cards.length} 项修改，批准前不会写入任何文件
       </h2>
 

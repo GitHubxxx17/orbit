@@ -38,6 +38,11 @@ export interface RunView {
   runId: string | null;
   /** What the user asked in this run (the user.message event). */
   prompt: string | null;
+  /** Which agent ran it, from run.started; tells demo runs from live ones. */
+  agentId: string | null;
+  /** Event timestamps (epoch ms), used to show how long a run took. */
+  startedAt: number | null;
+  endedAt: number | null;
   status: RunStatus;
   failReason: string | null;
   lastSeq: number;
@@ -49,6 +54,9 @@ export interface RunView {
 export const emptyRun: RunView = {
   runId: null,
   prompt: null,
+  agentId: null,
+  startedAt: null,
+  endedAt: null,
   status: 'idle',
   failReason: null,
   lastSeq: 0,
@@ -112,7 +120,7 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
 
   switch (event.type) {
     case 'run.started':
-      return { ...next, status: 'running' };
+      return { ...next, status: 'running', agentId: event.agentId, startedAt: event.ts };
     case 'user.message':
       return { ...next, prompt: event.text };
     case 'message.delta':
@@ -166,9 +174,9 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
       };
     }
     case 'run.completed':
-      return { ...next, status: 'completed' };
+      return { ...next, status: 'completed', endedAt: event.ts };
     case 'run.failed':
-      return { ...next, status: 'failed', failReason: event.reason };
+      return { ...next, status: 'failed', failReason: event.reason, endedAt: event.ts };
   }
 }
 

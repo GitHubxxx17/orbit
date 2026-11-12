@@ -2,24 +2,28 @@ import { memo, useEffect, useRef } from 'react';
 
 import type { Answers } from '@/api';
 import { ApprovalPanel } from '@/components/approval-panel';
+import { Markdown } from '@/components/markdown';
 import { ProcessGroup } from '@/components/process-group';
+import { duration } from '@/lib/format';
 import { layoutItems } from '@/state/group';
 import type { SessionView } from '@/state/session';
 import type { RunView } from '@/state/timeline';
 
-const TextBlock = memo(function TextBlock({ text }: { text: string }) {
-  return <p className="my-2 leading-relaxed whitespace-pre-wrap">{text}</p>;
-});
-
 interface TurnProps {
   view: RunView;
+  /** The live model's name, for the line under an answer. */
+  liveModel: string | null;
   /** Only the newest turn can be waiting for the user. */
   onApprove: ((approvalId: string, answers: Answers) => Promise<void>) | null;
   index: number;
 }
 
+function modelLabel(view: RunView, liveModel: string | null): string {
+  return view.agentId === 'orbit-demo' ? '演示模型' : (liveModel ?? '真实模型');
+}
+
 /** One question and the agent's work on it. */
-const Turn = memo(function Turn({ view, onApprove, index }: TurnProps) {
+const Turn = memo(function Turn({ view, liveModel, onApprove, index }: TurnProps) {
   const layout = layoutItems(view.items, view.status);
   const waiting = Object.values(view.tools).filter((card) => card.status === 'awaiting');
   const approvalId = waiting[0]?.approvalId;
@@ -35,12 +39,18 @@ const Turn = memo(function Turn({ view, onApprove, index }: TurnProps) {
       {layout.grouped ? (
         <>
           <ProcessGroup steps={layout.steps} tools={view.tools} status={view.status} />
-          {layout.answer && <TextBlock text={layout.answer.text} />}
+          {layout.answer && <Markdown text={layout.answer.text} />}
         </>
       ) : (
         layout.items.map((item) =>
-          item.kind === 'text' ? <TextBlock key={item.id} text={item.text} /> : null,
+          item.kind === 'text' ? <Markdown key={item.id} text={item.text} /> : null,
         )
+      )}
+
+      {view.status === 'completed' && view.startedAt !== null && view.endedAt !== null && (
+        <p className="mt-1 mb-2 text-xs text-muted-foreground">
+          {modelLabel(view, liveModel)} · 用时 {duration(view.endedAt - view.startedAt)}
+        </p>
       )}
 
       {approvalId && onApprove && (
@@ -64,10 +74,11 @@ const Turn = memo(function Turn({ view, onApprove, index }: TurnProps) {
 
 interface Props {
   session: SessionView;
+  liveModel: string | null;
   onApprove: (approvalId: string, answers: Answers) => Promise<void>;
 }
 
-export function Conversation({ session, onApprove }: Props) {
+export function Conversation({ session, liveModel, onApprove }: Props) {
   const bottom = useRef<HTMLDivElement>(null);
   const { turns } = session;
   const last = turns.at(-1);
@@ -77,23 +88,14 @@ export function Conversation({ session, onApprove }: Props) {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [turns.length, last?.lastSeq]);
 
-  if (turns.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-        在下方输入一个问题，或直接点“运行”看演示。
-        <br />
-        可以接着追问，同一个会话里智能体能看到前面的对话。
-      </div>
-    );
-  }
-
   return (
-    <div className="p-4" role="log" aria-live="polite" aria-label="对话">
+    <div className="mx-auto w-full max-w-3xl p-4" role="log" aria-live="polite" aria-label="对话">
       {turns.map((view, index) => (
         <Turn
           // Turns are only ever appended, so the position is a stable identity.
           key={index}
           view={view}
+          liveModel={liveModel}
           index={index}
           onApprove={index === turns.length - 1 ? onApprove : null}
         />
