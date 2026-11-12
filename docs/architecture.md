@@ -10,6 +10,7 @@
 - **Risk** — `read` (auto-allow), `write` (batched approval), `dangerous` (hard block).
 - **Policy** — maps a tool call to `allow`, `ask` or `deny` from declarative rules.
 - **Session** — an ordered list of runs; the conversation the model sees is rebuilt from their logs.
+- **Data folder** — `~/.orbit` (or `ORBIT_DATA_DIR`): the SQLite file with all runs and sessions.
 - **Approval** — one pause per model turn in which the user reviews every `ask` call with its preview.
 
 ## Invariants
@@ -43,7 +44,8 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Write tool with diff preview      | implemented |
 | Sessions, history, context budget | implemented |
 | Session list, theme, Markdown UI  | implemented |
-| SQLite persistence, replay, fork  | planned     |
+| SQLite persistence, sessions      | implemented |
+| Replay, fork, rollback            | planned     |
 | MCP, evaluation, desktop shell    | planned     |
 
 When you implement a planned part, update this table in the same change.

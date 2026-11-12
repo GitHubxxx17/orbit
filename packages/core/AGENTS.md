@@ -17,3 +17,6 @@ Event store and the agent runtime.
   (ADR 0003). Anything the model must be able to see again later has to be in an event.
 - `fitToBudget` must keep every assistant tool call next to its tool answers; test it with the
   pairing check before changing it.
+- A store implementation is correct when it passes the contract suites in `src/testing.ts`
+  (`@orbit/core/testing`). Add a rule there first, then make every implementation satisfy it.
+- Stores hand out copies: changing a returned event or session must never change what is stored.

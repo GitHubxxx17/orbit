@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import {
   createPolicy,
   defaultPolicyConfig,
@@ -8,6 +12,7 @@ import {
   type LlmClient,
 } from '@orbit/core';
 import type { OrbitEvent } from '@orbit/protocol';
+import { openStores } from '@orbit/store-sqlite';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -33,6 +38,8 @@ function setup(overrides: Partial<RunStarter> = {}) {
     cancel: () => false,
     listSessions: () => [],
     sessionRuns: () => undefined,
+    rename: () => false,
+    remove: () => 'unknown',
     info: () => ({ workspace: '/w', workspaceName: 'w', liveModel: null }),
     ...overrides,
   };
@@ -372,7 +379,10 @@ describe('sessions', () => {
       workspace: '/w',
       demoLlm: llm,
       newId: () => `run${++runs}`,
-      newSessionId: () => 'session1',
+      newSessionId: (() => {
+        let n = 0;
+        return () => `session${++n}`;
+      })(),
     });
     return { store, seen, manager, app: createApp({ store, runs: manager, approvals }) };
   }
@@ -568,5 +578,153 @@ describe('read-only approval mode', () => {
     expect(written).toEqual([]);
     expect(events.map((e) => e.type)).not.toContain('approval.requested');
     expect(events.at(-1)?.type).toBe('run.completed');
+  });
+});
+
+describe('rename and remove a session', () => {
+  const patch = (app: ReturnType<typeof createApp>, id: string, body: string, type = json) =>
+    call(app, `/sessions/${id}`, { method: 'PATCH', headers: type, body });
+
+  it('renames a session', async () => {
+    const renamed: unknown[] = [];
+    const { app } = setup({
+      rename: (id, title) => {
+        renamed.push([id, title]);
+        return id === 's1';
+      },
+    });
+    expect((await patch(app, 's1', '{"title":"  新标题  "}')).status).toBe(200);
+    expect(renamed).toEqual([['s1', '新标题']]);
+    expect((await patch(app, 'nope', '{"title":"x"}')).status).toBe(404);
+  });
+
+  it.each([
+    ['not json'],
+    ['{}'],
+    ['{"title":""}'],
+    ['{"title":"   "}'],
+    [`{"title":"${'x'.repeat(81)}"}`],
+  ])('rejects a bad rename: %s', async (body) => {
+    const { app } = setup({ rename: () => true });
+    expect((await patch(app, 's1', body)).status).toBe(400);
+  });
+
+  it('requires a JSON content type to rename', async () => {
+    const { app } = setup({ rename: () => true });
+    expect((await patch(app, 's1', '{"title":"x"}', { 'content-type': 'text/plain' })).status).toBe(
+      415,
+    );
+  });
+
+  it('removes a session, refuses while it is busy, and 404s for an unknown one', async () => {
+    const outcomes: Record<string, 'ok' | 'unknown' | 'busy'> = {
+      a: 'ok',
+      b: 'busy',
+      c: 'unknown',
+    };
+    const { app } = setup({ remove: (id) => outcomes[id] ?? 'unknown' });
+    const del = (id: string) => call(app, `/sessions/${id}`, { method: 'DELETE' });
+
+    expect((await del('a')).status).toBe(200);
+    expect((await del('b')).status).toBe(409);
+    expect((await del('c')).status).toBe(404);
+  });
+});
+
+describe('sessions that survive a restart', () => {
+  it('lets the conversation continue after the server is started again', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'orbit-restart-'));
+    const file = path.join(dir, 'orbit.db');
+    const seen: ChatMessage[][] = [];
+    const llm: LlmClient = {
+      async *stream(request) {
+        seen.push([...request.messages]);
+        yield { type: 'text-delta', text: 'ok' };
+        yield { type: 'finish', reason: 'stop', usage: null };
+      },
+    };
+    const boot = () => {
+      const stores = openStores(file);
+      const store = new BroadcastingStore(stores.events);
+      const approvals = new ApprovalBroker();
+      const manager = new RunManager({
+        store,
+        sessions: stores.sessions,
+        registry: new ToolRegistry(),
+        workspace: '/w',
+        demoLlm: llm,
+      });
+      return { stores, manager, app: createApp({ store, runs: manager, approvals }) };
+    };
+
+    try {
+      const first = boot();
+      const started = first.manager.start({ prompt: 'before restart', mode: 'demo' });
+      await readEvents(await call(first.app, `/runs/${started.runId}/stream`));
+      first.stores.close();
+
+      const second = boot();
+      const list = second.manager.listSessions();
+      expect(list).toHaveLength(1);
+      expect(list[0]).toMatchObject({ title: 'before restart', runCount: 1, snippet: 'ok' });
+
+      const next = second.manager.start({
+        prompt: 'after restart',
+        mode: 'demo',
+        sessionId: started.sessionId,
+      });
+      await readEvents(await call(second.app, `/runs/${next.runId}/stream`));
+
+      expect(seen.at(-1)?.map((m) => m.content)).toContain('before restart');
+      second.stores.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows the title the user chose instead of the derived one, and hides a removed session', async () => {
+    const stores = openStores(':memory:');
+    const store = new BroadcastingStore(stores.events);
+    const manager = new RunManager({
+      store,
+      sessions: stores.sessions,
+      registry: new ToolRegistry(),
+      workspace: '/w',
+      demoLlm: createDemoLlm(0),
+    });
+    const app = createApp({ store, runs: manager, approvals: new ApprovalBroker() });
+
+    const { runId, sessionId } = manager.start({ prompt: 'derived title', mode: 'demo' });
+    await readEvents(await call(app, `/runs/${runId}/stream`));
+
+    expect(manager.rename(sessionId, '我起的名字')).toBe(true);
+    expect(manager.listSessions()[0]?.title).toBe('我起的名字');
+    expect(manager.remove(sessionId)).toBe('ok');
+    expect(manager.listSessions()).toEqual([]);
+    expect(manager.sessionRuns(sessionId)).toBeUndefined();
+    // Removed means hidden, not erased: the events are still in the log.
+    expect(stores.events.read(runId).length).toBeGreaterThan(0);
+  });
+
+  it('will not remove a session while one of its runs is going', async () => {
+    let release = () => {};
+    const hold = new Promise<void>((resolve) => (release = resolve));
+    const stores = openStores(':memory:');
+    const manager = new RunManager({
+      store: new BroadcastingStore(stores.events),
+      sessions: stores.sessions,
+      registry: new ToolRegistry(),
+      workspace: '/w',
+      demoLlm: {
+        async *stream() {
+          await hold;
+          yield { type: 'finish', reason: 'stop', usage: null };
+        },
+      },
+    });
+    const { sessionId } = manager.start({ prompt: 'x', mode: 'demo' });
+
+    expect(manager.remove(sessionId)).toBe('busy');
+    release();
   });
 });

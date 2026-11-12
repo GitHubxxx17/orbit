@@ -27,5 +27,5 @@ export function useSessions(trigger: string) {
     return () => window.removeEventListener('focus', refresh);
   }, [refresh]);
 
-  return { sessions, failed };
+  return { sessions, failed, refresh };
 }

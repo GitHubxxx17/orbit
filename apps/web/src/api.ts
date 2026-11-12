@@ -98,3 +98,17 @@ export async function submitApproval(
   );
   if (!res.ok) throw await failure(res);
 }
+
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw await failure(res);
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+  if (!res.ok) throw await failure(res);
+}

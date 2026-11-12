@@ -3,12 +3,14 @@ import path from 'node:path';
 import {
   DEFAULT_SYSTEM_PROMPT,
   historyFromRuns,
+  InMemorySessionStore,
   readOnlyPolicy,
   runAgent,
   type Approver,
   type EventStore,
   type LlmClient,
   type Policy,
+  type SessionStore,
   type ToolRegistry,
 } from '@orbit/core';
 
@@ -45,6 +47,10 @@ export interface RunStarter {
   listSessions(): SessionSummary[];
   /** The run ids of a session, oldest first; undefined for an unknown session. */
   sessionRuns(sessionId: string): string[] | undefined;
+  /** Give a session a title of the user's choosing. False for an unknown session. */
+  rename(sessionId: string, title: string): boolean;
+  /** Hide a session; its events stay. `busy` while a run of it is going. */
+  remove(sessionId: string): 'ok' | 'unknown' | 'busy';
   info(): Omit<ServerInfo, 'modes'>;
 }
 
@@ -65,6 +71,8 @@ export interface RunManagerOptions {
   demoLlm: LlmClient;
   /** Absent when no model credentials are configured. */
   liveLlm?: LlmClient;
+  /** Where sessions are kept. Defaults to memory, which is lost on restart. */
+  sessions?: SessionStore;
   /** Name of the live model, shown in the UI. */
   liveModel?: string;
   /** Decides which tool calls run, wait for the user, or are refused. */
@@ -84,10 +92,12 @@ interface ActiveRun {
 
 export class RunManager implements RunStarter {
   private readonly active = new Map<string, ActiveRun>();
-  /** Session id -> ids of its runs, oldest first. The conversation itself lives in the event logs. */
-  private readonly sessions = new Map<string, string[]>();
+  /** Which runs belong to which session. The conversation itself lives in the event logs. */
+  private readonly sessions: SessionStore;
 
-  constructor(private readonly options: RunManagerOptions) {}
+  constructor(private readonly options: RunManagerOptions) {
+    this.sessions = options.sessions ?? new InMemorySessionStore();
+  }
 
   modes(): RunMode[] {
     return this.options.liveLlm ? ['demo', 'live'] : ['demo'];
@@ -111,8 +121,9 @@ export class RunManager implements RunStarter {
     if (!llm) throw new RunRejected('live mode is not configured on this server', 400);
 
     // A client cannot invent a session id: only ids this server handed out are accepted.
-    const previousRuns = sessionId === undefined ? [] : this.sessions.get(sessionId);
-    if (!previousRuns) throw new RunRejected('unknown session', 404);
+    const existing = sessionId === undefined ? undefined : this.sessions.get(sessionId);
+    if (sessionId !== undefined && !existing) throw new RunRejected('unknown session', 404);
+    const previousRuns = existing?.runIds ?? [];
     if ([...this.active.values()].some((run) => run.sessionId === sessionId)) {
       throw new RunRejected('this session already has a run in progress', 409);
     }
@@ -123,7 +134,8 @@ export class RunManager implements RunStarter {
     const session = sessionId ?? (this.options.newSessionId ?? (() => crypto.randomUUID()))();
     const runId = (this.options.newId ?? (() => crypto.randomUUID()))();
     const history = historyFromRuns(previousRuns.map((id) => this.options.store.read(id)));
-    this.sessions.set(session, [...previousRuns, runId]);
+    if (!existing) this.sessions.create(session);
+    this.sessions.addRun(session, runId);
 
     const controller = new AbortController();
     this.active.set(runId, { controller, sessionId: session });
@@ -157,19 +169,31 @@ export class RunManager implements RunStarter {
   }
 
   listSessions(): SessionSummary[] {
-    return [...this.sessions.entries()]
-      .map(([id, runIds]) =>
+    return this.sessions
+      .list()
+      .map((record) =>
         summarizeSession(
-          id,
-          runIds.map((runId) => this.options.store.read(runId)),
+          record.sessionId,
+          record.runIds.map((runId) => this.options.store.read(runId)),
+          record.title,
         ),
       )
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   sessionRuns(sessionId: string): string[] | undefined {
-    const runIds = this.sessions.get(sessionId);
-    return runIds ? [...runIds] : undefined;
+    return this.sessions.get(sessionId)?.runIds;
+  }
+
+  rename(sessionId: string, title: string): boolean {
+    return this.sessions.rename(sessionId, title);
+  }
+
+  remove(sessionId: string): 'ok' | 'unknown' | 'busy' {
+    if (!this.sessions.get(sessionId)) return 'unknown';
+    // A run that is still going would write into a conversation nobody can see any more.
+    if ([...this.active.values()].some((run) => run.sessionId === sessionId)) return 'busy';
+    return this.sessions.remove(sessionId) ? 'ok' : 'unknown';
   }
 
   info(): Omit<ServerInfo, 'modes'> {

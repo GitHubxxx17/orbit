@@ -11,6 +11,9 @@ Local HTTP server (Hono).
   with `POST /runs/:id/cancel`. Starting runs requires `application/json` and a loopback `Host`.
 - Never log request bodies or headers that may contain API keys.
 - A session id is only valid if the server issued it, and a session has one run at a time.
-  Sessions live in memory until events are persisted.
+
 - API response shapes live in `@orbit/protocol` (`src/api.ts`) so the web app can validate them.
   Session titles and snippets are derived from event logs (`session-summary.ts`), never stored.
+- Conversations are kept in SQLite under the data folder (`~/.orbit` or `ORBIT_DATA_DIR`); the
+  folder holds file contents the agent read, so it is created readable by the current user only.
+  On start-up `recoverInterruptedRuns` closes runs left going by the last shutdown.

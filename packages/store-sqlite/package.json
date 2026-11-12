@@ -1,0 +1,22 @@
+{
+  "name": "@orbit/store-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@orbit/core": "workspace:*",
+    "@orbit/protocol": "workspace:*",
+    "better-sqlite3": "13.1.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "vitest": "5.1.0"
+  }
+}
