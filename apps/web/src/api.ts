@@ -12,15 +12,24 @@ export async function fetchModes(): Promise<RunMode[]> {
   return body.modes;
 }
 
-export async function startRun(prompt: string, mode: RunMode): Promise<string> {
+export interface StartedRun {
+  runId: string;
+  sessionId: string;
+}
+
+/** Start a run. Pass the `sessionId` of an earlier answer to continue that conversation. */
+export async function startRun(
+  prompt: string,
+  mode: RunMode,
+  sessionId?: string,
+): Promise<StartedRun> {
   const res = await fetch('/api/runs', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt, mode }),
+    body: JSON.stringify({ prompt, mode, ...(sessionId ? { sessionId } : {}) }),
   });
   if (!res.ok) throw await failure(res);
-  const body = (await res.json()) as { runId: string };
-  return body.runId;
+  return (await res.json()) as StartedRun;
 }
 
 export async function cancelRun(runId: string): Promise<void> {

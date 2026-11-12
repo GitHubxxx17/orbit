@@ -14,3 +14,5 @@ React 19 + Vite + Tailwind CSS 4 UI.
 - Pin every dependency version the shadcn CLI adds (it writes `^` ranges).
 - Tests live in `test/` and cover pure state logic (`src/state/`), not rendering details.
 - Interactive elements must be keyboard accessible and have accessible names.
+- A conversation is a list of per-run views (`state/session.ts`); events always go to the newest
+  one. Earlier turns are finished and must keep their identity so they do not re-render.
