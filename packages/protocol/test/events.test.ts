@@ -6,6 +6,7 @@ import {
   ModelList,
   ServerInfo,
   SessionSummary,
+  WorkspaceList,
 } from '../src/api.js';
 import { OrbitEvent } from '../src/events.js';
 
@@ -105,10 +106,15 @@ describe('API shapes', () => {
       runCount: 1,
       status: 'idle',
       updatedAt: 5,
+      workspace: '/w',
+      workspaceName: 'w',
     };
     expect(SessionSummary.safeParse(summary).success).toBe(true);
     expect(SessionSummary.safeParse({ ...summary, status: 'weird' }).success).toBe(false);
     expect(SessionSummary.safeParse({ ...summary, sessionId: '' }).success).toBe(false);
+    // The workspace is part of the summary, so a list without it is refused.
+    const { workspace: _w, ...without } = summary;
+    expect(SessionSummary.safeParse(without).success).toBe(false);
   });
 
   it('accepts server info with or without a live model', () => {
@@ -176,5 +182,18 @@ describe('API shapes', () => {
     };
     expect(AgentProfile.safeParse(agent).success).toBe(true);
     expect(AgentProfile.safeParse({ ...agent, tools: [1] }).success).toBe(false);
+  });
+
+  it('describes the registered workspaces and the config entries that were skipped', () => {
+    const list = {
+      workspaces: [{ id: 'w-1', name: 'a', path: '/a' }],
+      defaultId: 'w-1',
+      errors: [{ source: '/x', message: '目录不存在' }],
+    };
+    expect(WorkspaceList.safeParse(list).success).toBe(true);
+    expect(WorkspaceList.safeParse({ ...list, defaultId: '' }).success).toBe(false);
+    expect(WorkspaceList.safeParse({ ...list, workspaces: [{ id: 'w', name: 'a' }] }).success).toBe(
+      false,
+    );
   });
 });

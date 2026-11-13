@@ -7,6 +7,7 @@ import { AppearanceSection } from '@/components/appearance-section';
 import { McpSection } from '@/components/mcp-section';
 import { ModelsSection } from '@/components/models-section';
 import { Button } from '@/components/ui/button';
+import { WorkspacesSection } from '@/components/workspaces-section';
 import type { Appearance } from '@/lib/appearance';
 import type { Preferences } from '@/lib/preferences';
 
@@ -22,6 +23,7 @@ interface Props {
 
 const SECTIONS = [
   { id: 'model', label: '模型' },
+  { id: 'workspaces', label: '工作区' },
   { id: 'agents', label: '智能体' },
   { id: 'appearance', label: '外观' },
   { id: 'chat', label: '聊天' },
@@ -68,6 +70,7 @@ export function SettingsView({
       {section === 'appearance' && (
         <AppearanceSection appearance={appearance} onChange={onAppearance} />
       )}
+      {section === 'workspaces' && <WorkspacesSection onChanged={onChanged} />}
       {section === 'agents' && <AgentsSection onChanged={onChanged} />}
       {section === 'chat' && <ChatSection preferences={preferences} onChange={onPreferences} />}
       {section === 'model' && <ModelsSection onChanged={onChanged} />}
