@@ -21,7 +21,8 @@
    with the same `callId`.
    3a. A `tool.decided` made by the user follows an `approval.requested` that named that call, and an
    approval only names calls that were requested (see ADR 0002).
-4. A run ends with exactly one `run.completed` or `run.failed`.
+4. A run ends with exactly one `run.completed` or `run.failed`. Only `file.rolledback` may come
+   after it, and only for a call that has a `file.changed` (see ADR 0006).
 5. State shown in the UI is a function of the event log only.
 
 ## Data flow
@@ -45,7 +46,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Sessions, history, context budget | implemented |
 | Session list, theme, Markdown UI  | implemented |
 | SQLite persistence, sessions      | implemented |
-| Replay, fork, rollback            | planned     |
+| Replay, fork, rollback            | implemented |
 | MCP, evaluation, desktop shell    | planned     |
 
 When you implement a planned part, update this table in the same change.
