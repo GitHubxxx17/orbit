@@ -19,3 +19,12 @@ export function duration(milliseconds: number): string {
   const minutes = Math.floor(seconds / 60);
   return `${minutes} 分 ${String(seconds % 60).padStart(2, '0')} 秒`;
 }
+
+/** "812", "12.3k", "1.2M" for a number of tokens. */
+export function formatTokens(count: number): string {
+  if (count < 1000) return String(count);
+  // One decimal. Rounding can reach 1000k, which is shown as 1.0M instead.
+  const thousands = Math.round(count / 100) / 10;
+  if (thousands < 1000) return `${thousands.toFixed(1)}k`;
+  return `${(Math.round(count / 100_000) / 10).toFixed(1)}M`;
+}

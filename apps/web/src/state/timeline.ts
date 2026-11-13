@@ -1,5 +1,7 @@
 import type { OrbitEvent, RiskLevel } from '@orbit/protocol';
 
+import { formatTokens } from '@/lib/format';
+
 /**
  * The view of a run, derived only from its events. There is no other state: replaying the same
  * events always rebuilds the same screen.
@@ -40,6 +42,14 @@ export interface TimelineRow {
 
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed';
 
+/** Tokens the model calls of one turn used, added up. */
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  /** How many model calls reported usage. */
+  calls: number;
+}
+
 export interface RunView {
   runId: string | null;
   /** What the user asked in this run (the user.message event). */
@@ -55,6 +65,8 @@ export interface RunView {
   items: ChatItem[];
   tools: Record<string, ToolCard>;
   rows: TimelineRow[];
+  /** Null until a model call reports usage; null means unknown, never zero. */
+  usage: TokenUsage | null;
 }
 
 export const emptyRun: RunView = {
@@ -69,6 +81,7 @@ export const emptyRun: RunView = {
   items: [],
   tools: {},
   rows: [],
+  usage: null,
 };
 
 export function labelOf(event: OrbitEvent): string {
@@ -91,6 +104,8 @@ export function labelOf(event: OrbitEvent): string {
       return `文件已修改 ${event.path}`;
     case 'file.rolledback':
       return `已撤销 ${event.path}`;
+    case 'model.usage':
+      return `用量 输入 ${formatTokens(event.promptTokens)} · 输出 ${formatTokens(event.completionTokens)}`;
     case 'run.completed':
       return '运行完成';
     case 'run.failed':
@@ -192,6 +207,18 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
       if (!card) return next;
       const patch = event.type === 'file.changed' ? { changed: true } : { rolledBack: true };
       return { ...next, tools: { ...view.tools, [event.callId]: { ...card, ...patch } } };
+    }
+    case 'model.usage': {
+      // Several model calls make up one turn: add them up. No usage event at all stays null.
+      const total = view.usage ?? { promptTokens: 0, completionTokens: 0, calls: 0 };
+      return {
+        ...next,
+        usage: {
+          promptTokens: total.promptTokens + event.promptTokens,
+          completionTokens: total.completionTokens + event.completionTokens,
+          calls: total.calls + 1,
+        },
+      };
     }
     case 'run.completed':
       return { ...next, status: 'completed', endedAt: event.ts };

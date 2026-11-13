@@ -6,9 +6,9 @@ import { ApprovalPanel } from '@/components/approval-panel';
 import { Markdown } from '@/components/markdown';
 import { ProcessGroup } from '@/components/process-group';
 import { ReportCard } from '@/components/report-card';
-import { duration } from '@/lib/format';
 import { layoutItems } from '@/state/group';
 import { describeFailure } from '@/state/failure';
+import { turnFooter } from '@/state/footer';
 import { missingReport, reportOf, withoutReport } from '@/state/report';
 import type { SessionView } from '@/state/session';
 import type { RunView } from '@/state/timeline';
@@ -24,16 +24,13 @@ interface TurnProps {
   index: number;
 }
 
-function modelLabel(view: RunView, liveModel: string | null): string {
-  return view.agentId === 'orbit-demo' ? '演示模型' : (liveModel ?? '真实模型');
-}
-
 /** One question and the agent's work on it. */
 const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: TurnProps) {
   // The report has its own card below the answer, so it is not one of the process steps.
   const layout = layoutItems(withoutReport(view.items, view.tools), view.status);
   const report = reportOf(view);
   const missing = missingReport(view);
+  const footer = turnFooter(view, liveModel);
   const waiting = Object.values(view.tools).filter((card) => card.status === 'awaiting');
   const approvalId = waiting[0]?.approvalId;
 
@@ -65,11 +62,7 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: T
         </p>
       )}
 
-      {view.status === 'completed' && view.startedAt !== null && view.endedAt !== null && (
-        <p className="mt-1 mb-2 text-xs text-muted-foreground">
-          {modelLabel(view, liveModel)} · 用时 {duration(view.endedAt - view.startedAt)}
-        </p>
-      )}
+      {footer && <p className="mt-1 mb-2 text-xs text-muted-foreground">{footer}</p>}
 
       {onFork && (view.status === 'completed' || view.status === 'failed') && (
         <button
