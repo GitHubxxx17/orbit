@@ -20,6 +20,7 @@ import { createApp } from './app.js';
 import { BroadcastingStore } from './broadcast-store.js';
 import { createDemoLlm } from './demo-llm.js';
 import { recoverInterruptedRuns } from './recover.js';
+import { AgentManager, AgentStore } from './agents.js';
 import { ModelManager } from './models.js';
 import { RunManager } from './runs.js';
 import { SettingsStore } from './settings.js';
@@ -81,12 +82,25 @@ const stores = openStores(path.join(dataDir, 'orbit.db'));
 const interrupted = recoverInterruptedRuns(stores.sessions, stores.events);
 if (interrupted > 0) console.log(`closed ${interrupted} run(s) interrupted by the last shutdown`);
 
+// Agent profiles live in agents.json; a profile may only name tools and models that exist.
+const agents = new AgentManager({
+  store: new AgentStore(path.join(dataDir, 'agents.json')),
+  tools: () =>
+    registry.list().map((tool) => ({
+      name: tool.name,
+      risk: tool.risk,
+      description: tool.description,
+    })),
+  hasModel: (id) => models.list().models.some((model) => model.id === id),
+});
+
 const store = new BroadcastingStore(stores.events);
 const approvals = new ApprovalBroker();
 const runs = new RunManager({
   store,
   sessions: stores.sessions,
   registry,
+  agents,
   workspace,
   // Read freely, ask the user before writing, refuse anything dangerous.
   policy: createPolicy(defaultPolicyConfig),
@@ -95,7 +109,7 @@ const runs = new RunManager({
   rollback: await createRollback(workspace),
   live: (modelId) => models.current(modelId),
 });
-const app = createApp({ store, runs, approvals, models, mcp });
+const app = createApp({ store, runs, approvals, models, agents, mcp });
 
 // Bind to loopback only: this is a local-first tool, not a network service.
 const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {

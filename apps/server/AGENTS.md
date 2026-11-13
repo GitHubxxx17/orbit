@@ -28,3 +28,8 @@ Local HTTP server (Hono).
 - MCP servers come from `mcp.json` in the data folder (ADR 0008). `GET /mcp` is read-only status;
   never add a route that creates or changes a server, because a stdio server is a program started
   on this machine. A broken config or server is reported, never fatal.
+
+- Agent profiles (`/agents*`, `agents.ts`) follow ADR 0013: data in `agents.json`, they may only
+  narrow tools (`ToolRegistry.pick`) and add instructions after the built-in prompt; names of tools
+  and models are checked on save; `report` is always kept. A profile must never grant a tool, relax
+  the policy or hold a key.

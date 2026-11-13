@@ -1,8 +1,15 @@
-import { ModelInput, ModelTestInput, type McpStatus, type OrbitEvent } from '@orbit/protocol';
+import {
+  AgentInput,
+  ModelInput,
+  ModelTestInput,
+  type McpStatus,
+  type OrbitEvent,
+} from '@orbit/protocol';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 
+import { AgentError, type AgentManager } from './agents.js';
 import type { ApprovalResolver } from './approvals.js';
 import type { BroadcastingStore } from './broadcast-store.js';
 import type { ModelManager } from './models.js';
@@ -15,6 +22,8 @@ export interface AppDeps {
   approvals: ApprovalResolver;
   /** Model settings; absent in tests that do not exercise them. */
   models?: Pick<ModelManager, 'list' | 'save' | 'remove' | 'setDefault' | 'test' | 'balance'>;
+  /** Agent profiles; absent in tests that do not exercise them. */
+  agents?: Pick<AgentManager, 'list' | 'save' | 'remove' | 'tools'>;
   /** The configured MCP servers, read-only. Absent in tests that do not exercise them. */
   mcp?: { status(): McpStatus };
 }
@@ -27,6 +36,8 @@ const StartBody = z.object({
   sessionId: z.string().min(1).optional(),
   /** A saved model for this run (live mode); omit it for the default. */
   modelId: z.string().min(1).optional(),
+  /** An agent profile for this run (live mode); omit it for the built-in agent. */
+  agentId: z.string().min(1).optional(),
 });
 
 const DefaultBody = z.object({ id: z.string().min(1) });
@@ -50,7 +61,7 @@ function requireJson(contentType: string | undefined) {
     : { body: { error: 'content-type must be application/json' }, status: 415 as const };
 }
 
-export function createApp({ store, runs, approvals, models, mcp }: AppDeps) {
+export function createApp({ store, runs, approvals, models, agents, mcp }: AppDeps) {
   const app = new Hono();
 
   // A web page in the user's browser must not be able to drive this local server through DNS
@@ -195,6 +206,43 @@ export function createApp({ store, runs, approvals, models, mcp }: AppDeps) {
         if (error instanceof SettingsError) return c.json({ error: error.message }, 400);
         throw error;
       }
+    });
+  }
+
+  if (agents) {
+    app.get('/agents', (c) => c.json(agents.list()));
+    app.get('/agents/tools', (c) => c.json({ tools: agents.tools() }));
+
+    const attempt = (fn: () => unknown) => {
+      try {
+        return { value: fn() };
+      } catch (error) {
+        if (error instanceof AgentError) return { error: error.message };
+        throw error;
+      }
+    };
+
+    app.post('/agents', async (c) => {
+      const notJson = requireJson(c.req.header('content-type'));
+      if (notJson) return c.json(notJson.body, notJson.status);
+      const body = AgentInput.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+      const result = attempt(() => agents.save(undefined, body.data));
+      return result.error ? c.json({ error: result.error }, 400) : c.json(result.value, 201);
+    });
+
+    app.put('/agents/:id', async (c) => {
+      const notJson = requireJson(c.req.header('content-type'));
+      if (notJson) return c.json(notJson.body, notJson.status);
+      const body = AgentInput.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+      const result = attempt(() => agents.save(c.req.param('id'), body.data));
+      return result.error ? c.json({ error: result.error }, 400) : c.json(result.value);
+    });
+
+    app.delete('/agents/:id', (c) => {
+      const result = attempt(() => agents.remove(c.req.param('id')));
+      return result.error ? c.json({ error: result.error }, 400) : c.json(result.value);
     });
   }
 
