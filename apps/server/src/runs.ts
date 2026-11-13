@@ -13,6 +13,7 @@ import {
   type SessionStore,
   type ToolRegistry,
 } from '@orbit/core';
+import { RollbackConflict } from '@orbit/tools';
 
 import type { ServerInfo, SessionSummary } from '@orbit/protocol';
 
@@ -51,8 +52,31 @@ export interface RunStarter {
   rename(sessionId: string, title: string): boolean;
   /** Hide a session; its events stay. `busy` while a run of it is going. */
   remove(sessionId: string): 'ok' | 'unknown' | 'busy';
+  /**
+   * Undo one file write of a finished run. Only when nothing is running, because a run could be
+   * writing the same files; `conflict` when the file no longer holds what the agent wrote.
+   */
+  rollback(runId: string, callId: string): Promise<RollbackOutcome>;
+  /**
+   * Start a new conversation holding the first `upToRun` runs (1-based) of an existing one, so the
+   * user can take a different direction from there. The original is not touched.
+   */
+  fork(sessionId: string, upToRun: number): ForkOutcome;
   info(): Omit<ServerInfo, 'modes'>;
 }
+
+export type RollbackOutcome =
+  | { status: 'ok' }
+  | { status: 'unknown' }
+  | { status: 'already' }
+  | { status: 'busy' }
+  | { status: 'conflict'; message: string };
+
+export type ForkOutcome =
+  | { status: 'ok'; sessionId: string }
+  | { status: 'unknown' }
+  | { status: 'range' }
+  | { status: 'busy' };
 
 export class RunRejected extends Error {
   constructor(
@@ -77,6 +101,8 @@ export interface RunManagerOptions {
   policy?: Policy;
   /** Asked for the calls the policy leaves to the user. */
   approver?: Approver;
+  /** Undoes a recorded write on disk; throws RollbackConflict when the file has moved on. */
+  rollback?: (change: { path: string; before: string | null; after: string }) => Promise<void>;
   newId?: () => string;
   newSessionId?: () => string;
   /** Runs allowed at once; protects the machine and the model quota. */
@@ -90,6 +116,7 @@ interface ActiveRun {
 
 export class RunManager implements RunStarter {
   private readonly active = new Map<string, ActiveRun>();
+  private rollingBack = false;
   /** Which runs belong to which session. The conversation itself lives in the event logs. */
   private readonly sessions: SessionStore;
 
@@ -125,6 +152,7 @@ export class RunManager implements RunStarter {
     if ([...this.active.values()].some((run) => run.sessionId === sessionId)) {
       throw new RunRejected('this session already has a run in progress', 409);
     }
+    if (this.rollingBack) throw new RunRejected('a rollback is in progress, try again', 409);
     if (this.active.size >= (this.options.maxActive ?? 4)) {
       throw new RunRejected('too many runs in progress', 429);
     }
@@ -192,6 +220,63 @@ export class RunManager implements RunStarter {
     // A run that is still going would write into a conversation nobody can see any more.
     if ([...this.active.values()].some((run) => run.sessionId === sessionId)) return 'busy';
     return this.sessions.remove(sessionId) ? 'ok' : 'unknown';
+  }
+
+  async rollback(runId: string, callId: string): Promise<RollbackOutcome> {
+    const undo = this.options.rollback;
+    const events = this.options.store.read(runId);
+    const changed = events.find((e) => e.type === 'file.changed' && e.callId === callId);
+    if (!undo || changed?.type !== 'file.changed') return { status: 'unknown' };
+    if (events.some((e) => e.type === 'file.rolledback' && e.callId === callId)) {
+      return { status: 'already' };
+    }
+    // A running agent may be writing the same files, and two rollbacks could race on one file.
+    if (this.active.size > 0 || this.rollingBack) return { status: 'busy' };
+
+    this.rollingBack = true;
+    try {
+      await undo({ path: changed.path, before: changed.before, after: changed.after });
+    } catch (error) {
+      if (error instanceof RollbackConflict) {
+        return {
+          status: 'conflict',
+          message: `${error.message}。如果同一个文件被改过多次，请先撤销更晚的修改。`,
+        };
+      }
+      throw error;
+    } finally {
+      this.rollingBack = false;
+    }
+    this.options.store.append(runId, { type: 'file.rolledback', callId, path: changed.path });
+    return { status: 'ok' };
+  }
+
+  fork(sessionId: string, upToRun: number): ForkOutcome {
+    const record = this.sessions.get(sessionId);
+    if (!record) return { status: 'unknown' };
+    if (!Number.isInteger(upToRun) || upToRun < 1 || upToRun > record.runIds.length) {
+      return { status: 'range' };
+    }
+    const source = record.runIds.slice(0, upToRun);
+    if (source.some((runId) => this.active.has(runId))) return { status: 'busy' };
+
+    const logs = source.map((runId) => this.options.store.read(runId));
+    const title = summarizeSession(sessionId, logs, record.title).title;
+    const forked = (this.options.newSessionId ?? (() => crypto.randomUUID()))();
+    this.sessions.create(forked);
+    for (const log of logs) {
+      const copy = (this.options.newId ?? (() => crypto.randomUUID()))();
+      for (const event of log) {
+        // What the agent said and did is copied. Changes to files are not: the workspace is not
+        // forked, so the copy must not offer to undo writes that belong to the original.
+        if (event.type === 'file.changed' || event.type === 'file.rolledback') continue;
+        const { id: _id, runId: _runId, seq: _seq, ts: _ts, ...draft } = event;
+        this.options.store.append(copy, draft);
+      }
+      this.sessions.addRun(forked, copy);
+    }
+    this.sessions.rename(forked, `分叉 · ${title}`.slice(0, 80));
+    return { status: 'ok', sessionId: forked };
   }
 
   info(): Omit<ServerInfo, 'modes'> {

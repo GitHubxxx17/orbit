@@ -40,6 +40,8 @@ function setup(overrides: Partial<RunStarter> = {}) {
     sessionRuns: () => undefined,
     rename: () => false,
     remove: () => 'unknown',
+    rollback: async () => ({ status: 'unknown' }),
+    fork: () => ({ status: 'unknown' }),
     info: () => ({ workspace: '/w', workspaceName: 'w', liveModel: null }),
     ...overrides,
   };

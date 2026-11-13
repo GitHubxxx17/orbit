@@ -10,7 +10,7 @@ import {
   type LlmConfig,
 } from '@orbit/core';
 import { openStores } from '@orbit/store-sqlite';
-import { createTools } from '@orbit/tools';
+import { createRollback, createTools } from '@orbit/tools';
 
 import { ApprovalBroker } from './approvals.js';
 import { createApp } from './app.js';
@@ -60,6 +60,7 @@ const runs = new RunManager({
   policy: createPolicy(defaultPolicyConfig),
   approver: approvals,
   demoLlm: createDemoLlm(),
+  rollback: await createRollback(workspace),
   live: () => models.current(),
 });
 const app = createApp({ store, runs, approvals, models });
