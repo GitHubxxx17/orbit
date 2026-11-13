@@ -5,8 +5,10 @@ import type { Answers } from '@/api';
 import { ApprovalPanel } from '@/components/approval-panel';
 import { Markdown } from '@/components/markdown';
 import { ProcessGroup } from '@/components/process-group';
+import { ReportCard } from '@/components/report-card';
 import { duration } from '@/lib/format';
 import { layoutItems } from '@/state/group';
+import { missingReport, reportOf, withoutReport } from '@/state/report';
 import type { SessionView } from '@/state/session';
 import type { RunView } from '@/state/timeline';
 
@@ -27,7 +29,10 @@ function modelLabel(view: RunView, liveModel: string | null): string {
 
 /** One question and the agent's work on it. */
 const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: TurnProps) {
-  const layout = layoutItems(view.items, view.status);
+  // The report has its own card below the answer, so it is not one of the process steps.
+  const layout = layoutItems(withoutReport(view.items, view.tools), view.status);
+  const report = reportOf(view);
+  const missing = missingReport(view);
   const waiting = Object.values(view.tools).filter((card) => card.status === 'awaiting');
   const approvalId = waiting[0]?.approvalId;
 
@@ -48,6 +53,15 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: T
         layout.items.map((item) =>
           item.kind === 'text' ? <Markdown key={item.id} text={item.text} /> : null,
         )
+      )}
+
+      {report && <ReportCard report={report} tools={view.tools} />}
+      {missing && (
+        <p className="my-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          {missing === 'missing'
+            ? '智能体这次没有提交报告，所以上面的结论没有经过证据核对，请按过程里的实际步骤自行判断。'
+            : '智能体提交报告的调用没有成功，所以上面的结论没有经过证据核对。'}
+        </p>
       )}
 
       {view.status === 'completed' && view.startedAt !== null && view.endedAt !== null && (
