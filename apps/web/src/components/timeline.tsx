@@ -10,6 +10,8 @@ const DOT: Record<TimelineRow['type'], string> = {
   'tool.decided': 'bg-amber-400',
   'approval.requested': 'bg-orange-400',
   'tool.result': 'bg-emerald-400',
+  'file.changed': 'bg-teal-400',
+  'file.rolledback': 'bg-rose-400',
   'run.completed': 'bg-emerald-400',
   'run.failed': 'bg-red-400',
 };

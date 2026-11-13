@@ -1,3 +1,4 @@
+import { GitFork } from 'lucide-react';
 import { memo, useEffect, useRef } from 'react';
 
 import type { Answers } from '@/api';
@@ -15,6 +16,8 @@ interface TurnProps {
   liveModel: string | null;
   /** Only the newest turn can be waiting for the user. */
   onApprove: ((approvalId: string, answers: Answers) => Promise<void>) | null;
+  /** Start a new conversation from this turn; null while replaying. */
+  onFork: ((turn: number) => void) | null;
   index: number;
 }
 
@@ -23,7 +26,7 @@ function modelLabel(view: RunView, liveModel: string | null): string {
 }
 
 /** One question and the agent's work on it. */
-const Turn = memo(function Turn({ view, liveModel, onApprove, index }: TurnProps) {
+const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: TurnProps) {
   const layout = layoutItems(view.items, view.status);
   const waiting = Object.values(view.tools).filter((card) => card.status === 'awaiting');
   const approvalId = waiting[0]?.approvalId;
@@ -53,6 +56,17 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, index }: TurnProps
         </p>
       )}
 
+      {onFork && (view.status === 'completed' || view.status === 'failed') && (
+        <button
+          type="button"
+          onClick={() => onFork(index + 1)}
+          className="mb-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <GitFork aria-hidden className="size-3" />
+          从这里分叉
+        </button>
+      )}
+
       {approvalId && onApprove && (
         // Keyed by approval so a new request starts with every change selected again.
         <ApprovalPanel
@@ -75,10 +89,13 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, index }: TurnProps
 interface Props {
   session: SessionView;
   liveModel: string | null;
-  onApprove: (approvalId: string, answers: Answers) => Promise<void>;
+  /** Null while replaying: a replay cannot approve anything. */
+  onApprove: ((approvalId: string, answers: Answers) => Promise<void>) | null;
+  /** Null while replaying, or when no stored conversation is open. */
+  onFork: ((turn: number) => void) | null;
 }
 
-export function Conversation({ session, liveModel, onApprove }: Props) {
+export function Conversation({ session, liveModel, onApprove, onFork }: Props) {
   const bottom = useRef<HTMLDivElement>(null);
   const { turns } = session;
   const last = turns.at(-1);
@@ -98,6 +115,7 @@ export function Conversation({ session, liveModel, onApprove }: Props) {
           liveModel={liveModel}
           index={index}
           onApprove={index === turns.length - 1 ? onApprove : null}
+          onFork={onFork}
         />
       ))}
       <div ref={bottom} />

@@ -18,6 +18,10 @@ export interface ToolCard {
   /** Set while the call waits for the user: which approval it belongs to and what would change. */
   approvalId?: string;
   preview?: string;
+  /** The tool really changed a file (file.changed); only then can the change be undone. */
+  changed?: boolean;
+  /** The change was undone later (file.rolledback). */
+  rolledBack?: boolean;
 }
 
 export type ChatItem =
@@ -81,6 +85,10 @@ export function labelOf(event: OrbitEvent): string {
       return `等待审批（${event.items.length} 项）`;
     case 'tool.result':
       return event.ok ? '工具成功' : '工具失败';
+    case 'file.changed':
+      return `文件已修改 ${event.path}`;
+    case 'file.rolledback':
+      return `已撤销 ${event.path}`;
     case 'run.completed':
       return '运行完成';
     case 'run.failed':
@@ -172,6 +180,13 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
         ...next,
         tools: { ...view.tools, [event.callId]: { ...card, status, output: event.output } },
       };
+    }
+    case 'file.changed':
+    case 'file.rolledback': {
+      const card = view.tools[event.callId];
+      if (!card) return next;
+      const patch = event.type === 'file.changed' ? { changed: true } : { rolledBack: true };
+      return { ...next, tools: { ...view.tools, [event.callId]: { ...card, ...patch } } };
     }
     case 'run.completed':
       return { ...next, status: 'completed', endedAt: event.ts };
