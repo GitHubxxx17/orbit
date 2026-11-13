@@ -30,6 +30,12 @@ export interface Tool {
   risk: RiskLevel;
   /** The single source of truth for arguments; the JSON Schema sent to the model is derived. */
   schema: z.ZodType;
+  /**
+   * A ready-made JSON Schema for the model, for tools whose arguments are described by someone
+   * else (an MCP server). When set it is sent as is and `schema` only checks the arguments are an
+   * object; the tool's owner validates the rest.
+   */
+  jsonSchema?: Record<string, unknown>;
   /** Validates `rawArgs` against `schema`, then runs. Throws on invalid arguments or failure. */
   run(rawArgs: unknown, context: ToolContext): Promise<string>;
   /**

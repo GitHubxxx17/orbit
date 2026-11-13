@@ -11,6 +11,8 @@ import {
   type LlmConfig,
 } from '@orbit/core';
 import { openStores } from '@orbit/store-sqlite';
+import { loadMcpConfig, McpManager } from '@orbit/mcp';
+import type { McpStatus } from '@orbit/protocol';
 import { createRollback, createTools } from '@orbit/tools';
 
 import { ApprovalBroker } from './approvals.js';
@@ -47,6 +49,34 @@ const registry = new ToolRegistry();
 for (const tool of await createTools(workspace)) registry.register(tool);
 registry.register(reportTool());
 
+// MCP servers come from mcp.json, which the user edits by hand. A broken file or a server that
+// will not start is reported on the settings page and never stops Orbit.
+let mcpManager: McpManager | undefined;
+let mcpConfigError: string | null = null;
+try {
+  mcpManager = await McpManager.start(loadMcpConfig(path.join(dataDir, 'mcp.json')));
+  for (const tool of mcpManager.tools()) {
+    try {
+      registry.register(tool);
+    } catch (error) {
+      console.log(`mcp: skipped ${tool.name}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  for (const server of mcpManager.status()) {
+    if (server.state === 'connected') {
+      console.log(`mcp: ${server.id} connected (${server.tools.length} tools)`);
+    } else if (server.state === 'failed') {
+      console.log(`mcp: ${server.id} failed: ${server.error}`);
+    }
+  }
+} catch (error) {
+  mcpConfigError = error instanceof Error ? error.message : String(error);
+  console.log(`mcp: not started: ${mcpConfigError}`);
+}
+const mcp = {
+  status: (): McpStatus => ({ servers: mcpManager?.status() ?? [], configError: mcpConfigError }),
+};
+
 const stores = openStores(path.join(dataDir, 'orbit.db'));
 const interrupted = recoverInterruptedRuns(stores.sessions, stores.events);
 if (interrupted > 0) console.log(`closed ${interrupted} run(s) interrupted by the last shutdown`);
@@ -65,7 +95,7 @@ const runs = new RunManager({
   rollback: await createRollback(workspace),
   live: () => models.current(),
 });
-const app = createApp({ store, runs, approvals, models });
+const app = createApp({ store, runs, approvals, models, mcp });
 
 // Bind to loopback only: this is a local-first tool, not a network service.
 const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
@@ -77,8 +107,11 @@ const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) =
 // Close the database cleanly so the last writes are flushed to the main file.
 function shutdown(): void {
   server.close();
-  stores.close();
-  process.exit(0);
+  // Stops the processes started for stdio MCP servers, or they would outlive Orbit.
+  void (mcpManager?.close() ?? Promise.resolve()).finally(() => {
+    stores.close();
+    process.exit(0);
+  });
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
