@@ -19,6 +19,8 @@ interface TurnProps {
   view: RunView;
   /** The live model's name, for the line under an answer. */
   liveModel: string | null;
+  /** Whether the server has the report tool; the "no report" notice only makes sense then. */
+  reportEnabled: boolean;
   /** Only the newest turn can be waiting for the user. */
   onApprove: ((approvalId: string, answers: Answers) => Promise<void>) | null;
   /** Start a new conversation from this turn; null while replaying. */
@@ -27,11 +29,18 @@ interface TurnProps {
 }
 
 /** One question and the agent's work on it. */
-const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: TurnProps) {
+const Turn = memo(function Turn({
+  view,
+  liveModel,
+  reportEnabled,
+  onApprove,
+  onFork,
+  index,
+}: TurnProps) {
   // The report has its own card below the answer, so it is not one of the process steps.
   const layout = layoutItems(withoutReport(view.items, view.tools), view.status);
   const report = reportOf(view);
-  const missing = missingReport(view);
+  const missing = reportEnabled ? missingReport(view) : null;
   const footer = turnFooter(view, liveModel);
   const { showTimestamps } = usePreferences();
   const waiting = Object.values(view.tools).filter((card) => card.status === 'awaiting');
@@ -121,13 +130,15 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: T
 interface Props {
   session: SessionView;
   liveModel: string | null;
+  /** Whether the server has the report tool. */
+  reportEnabled: boolean;
   /** Null while replaying: a replay cannot approve anything. */
   onApprove: ((approvalId: string, answers: Answers) => Promise<void>) | null;
   /** Null while replaying, or when no stored conversation is open. */
   onFork: ((turn: number) => void) | null;
 }
 
-export function Conversation({ session, liveModel, onApprove, onFork }: Props) {
+export function Conversation({ session, liveModel, reportEnabled, onApprove, onFork }: Props) {
   const bottom = useRef<HTMLDivElement>(null);
   const { turns } = session;
   const last = turns.at(-1);
@@ -150,6 +161,7 @@ export function Conversation({ session, liveModel, onApprove, onFork }: Props) {
           key={index}
           view={view}
           liveModel={liveModel}
+          reportEnabled={reportEnabled}
           index={index}
           onApprove={index === turns.length - 1 ? onApprove : null}
           onFork={onFork}
