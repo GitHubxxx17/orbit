@@ -1,11 +1,13 @@
 import { ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
 
+import { ChatSection } from '@/components/chat-section';
 import { AppearanceSection } from '@/components/appearance-section';
 import { McpSection } from '@/components/mcp-section';
 import { ModelsSection } from '@/components/models-section';
 import { Button } from '@/components/ui/button';
 import type { Appearance } from '@/lib/appearance';
+import type { Preferences } from '@/lib/preferences';
 
 interface Props {
   onBack: () => void;
@@ -13,17 +15,27 @@ interface Props {
   onChanged: () => void;
   appearance: Appearance;
   onAppearance: (appearance: Appearance) => void;
+  preferences: Preferences;
+  onPreferences: (preferences: Preferences) => void;
 }
 
 const SECTIONS = [
   { id: 'model', label: '模型' },
   { id: 'appearance', label: '外观' },
+  { id: 'chat', label: '聊天' },
   { id: 'mcp', label: 'MCP' },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]['id'];
 
-export function SettingsView({ onBack, onChanged, appearance, onAppearance }: Props) {
+export function SettingsView({
+  onBack,
+  onChanged,
+  appearance,
+  onAppearance,
+  preferences,
+  onPreferences,
+}: Props) {
   const [section, setSection] = useState<SectionId>('model');
 
   return (
@@ -54,6 +66,7 @@ export function SettingsView({ onBack, onChanged, appearance, onAppearance }: Pr
       {section === 'appearance' && (
         <AppearanceSection appearance={appearance} onChange={onAppearance} />
       )}
+      {section === 'chat' && <ChatSection preferences={preferences} onChange={onPreferences} />}
       {section === 'model' && <ModelsSection onChanged={onChanged} />}
     </div>
   );

@@ -1,6 +1,7 @@
 import { Ban, CircleCheck, CircleHelp, CircleX, LoaderCircle, type LucideIcon } from 'lucide-react';
 import { memo } from 'react';
 
+import { usePreferences } from '@/hooks/use-preferences';
 import { describeTool } from '@/state/describe';
 import type { ToolCard, ToolStatus } from '@/state/timeline';
 
@@ -20,6 +21,7 @@ const STATUS: Record<ToolStatus, { label: string; className: string; icon: Lucid
 const MAX_OUTPUT_LINES = 12;
 
 function ToolStepView({ card }: { card: ToolCard }) {
+  const { expandTools } = usePreferences();
   const { label, className, icon: Icon } = STATUS[card.status];
   const spinning = card.status === 'pending' || card.status === 'running';
   const lines = card.output?.split('\n') ?? [];
@@ -27,7 +29,7 @@ function ToolStepView({ card }: { card: ToolCard }) {
 
   return (
     <li className="py-1.5 text-sm">
-      <details className="group">
+      <details className="group" open={expandTools || undefined}>
         <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-0.5 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
           <Icon
             aria-hidden
