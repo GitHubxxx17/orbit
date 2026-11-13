@@ -48,6 +48,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | SQLite persistence, sessions      | implemented |
 | Replay, fork, rollback            | implemented |
 | Claims and evidence (report tool) | implemented |
-| MCP, evaluation, desktop shell    | planned     |
+| MCP client (stdio and HTTP)       | implemented |
+| Evaluation, desktop shell         | planned     |
 
 When you implement a planned part, update this table in the same change.
