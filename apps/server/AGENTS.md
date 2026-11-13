@@ -33,3 +33,8 @@ Local HTTP server (Hono).
   narrow tools (`ToolRegistry.pick`) and add instructions after the built-in prompt; names of tools
   and models are checked on save; `report` is always kept. A profile must never grant a tool, relax
   the policy or hold a key.
+
+- Workspaces (`workspaces.ts`) follow ADR 0014: the list is the starting folder plus a hand-edited
+  `workspaces.json`. A folder is added only through the server-opened OS dialog (`folder-picker.ts`);
+  never add a route that accepts a path from a request. A run names a workspace by id, and a
+  conversation keeps the workspace its first run recorded.

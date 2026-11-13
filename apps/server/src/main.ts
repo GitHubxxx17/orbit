@@ -7,13 +7,11 @@ import {
   defaultPolicyConfig,
   loadLlmConfig,
   reportTool,
-  ToolRegistry,
   type LlmConfig,
 } from '@orbit/core';
 import { openStores } from '@orbit/store-sqlite';
 import { loadMcpConfig, McpManager } from '@orbit/mcp';
 import type { McpStatus } from '@orbit/protocol';
-import { createRollback, createTools } from '@orbit/tools';
 
 import { ApprovalBroker } from './approvals.js';
 import { createApp } from './app.js';
@@ -24,6 +22,7 @@ import { AgentManager, AgentStore } from './agents.js';
 import { ModelManager } from './models.js';
 import { RunManager } from './runs.js';
 import { SettingsStore } from './settings.js';
+import { WorkspaceManager } from './workspaces.js';
 
 const port = Number(process.env['ORBIT_PORT'] ?? 8787);
 // The folder the agent may read. Defaults to where the server was started.
@@ -46,23 +45,12 @@ const models = new ModelManager({
 if (!models.current())
   console.log('live mode disabled (no model configured; see the settings page)');
 
-const registry = new ToolRegistry();
-for (const tool of await createTools(workspace)) registry.register(tool);
-registry.register(reportTool());
-
 // MCP servers come from mcp.json, which the user edits by hand. A broken file or a server that
 // will not start is reported on the settings page and never stops Orbit.
 let mcpManager: McpManager | undefined;
 let mcpConfigError: string | null = null;
 try {
   mcpManager = await McpManager.start(loadMcpConfig(path.join(dataDir, 'mcp.json')));
-  for (const tool of mcpManager.tools()) {
-    try {
-      registry.register(tool);
-    } catch (error) {
-      console.log(`mcp: skipped ${tool.name}: ${error instanceof Error ? error.message : error}`);
-    }
-  }
   for (const server of mcpManager.status()) {
     if (server.state === 'connected') {
       console.log(`mcp: ${server.id} connected (${server.tools.length} tools)`);
@@ -74,6 +62,16 @@ try {
   mcpConfigError = error instanceof Error ? error.message : String(error);
   console.log(`mcp: not started: ${mcpConfigError}`);
 }
+// Every workspace gets its own file tools, confined to its folder, plus the shared ones: the
+// evidence report and whatever the MCP servers offer. MCP servers run outside any workspace sandbox.
+const workspaces = await WorkspaceManager.create({
+  primary: workspace,
+  file: path.join(dataDir, 'workspaces.json'),
+  sharedTools: () => [reportTool(), ...(mcpManager?.tools() ?? [])],
+  log: (message) => console.log(message),
+});
+const registry = workspaces.primary().registry;
+
 const mcp = {
   status: (): McpStatus => ({ servers: mcpManager?.status() ?? [], configError: mcpConfigError }),
 };
@@ -101,20 +99,21 @@ const runs = new RunManager({
   sessions: stores.sessions,
   registry,
   agents,
-  workspace,
+  workspace: workspaces.primary().path,
+  workspaces,
   // Read freely, ask the user before writing, refuse anything dangerous.
   policy: createPolicy(defaultPolicyConfig),
   approver: approvals,
   demoLlm: createDemoLlm(),
-  rollback: await createRollback(workspace),
+  rollback: workspaces.primary().rollback,
   live: (modelId) => models.current(modelId),
 });
-const app = createApp({ store, runs, approvals, models, agents, mcp });
+const app = createApp({ store, runs, approvals, models, agents, workspaces, mcp });
 
 // Bind to loopback only: this is a local-first tool, not a network service.
 const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
   console.log(`orbit server listening on http://127.0.0.1:${info.port}`);
-  console.log(`workspace: ${workspace}`);
+  console.log(`workspace: ${workspaces.primary().path}`);
   console.log(`data: ${path.join(dataDir, 'orbit.db')}`);
 });
 

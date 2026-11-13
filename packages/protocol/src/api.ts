@@ -19,6 +19,10 @@ export const SessionSummary = z.object({
   status: SessionStatus,
   /** Unix epoch milliseconds of the session's last event. */
   updatedAt: z.number().int().nonnegative(),
+  /** The folder the conversation works in, as its first run recorded it; empty if unknown. */
+  workspace: z.string(),
+  /** The registered name of that workspace, or the folder's own name if it is not registered. */
+  workspaceName: z.string(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -196,3 +200,23 @@ export type ToolInfo = z.infer<typeof ToolInfo>;
 
 export const ToolList = z.object({ tools: z.array(ToolInfo) });
 export type ToolList = z.infer<typeof ToolList>;
+
+/** A folder the agent may work in. Only the server decides which exist (ADR 0014). */
+export const WorkspaceInfo = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  path: z.string().min(1),
+});
+export type WorkspaceInfo = z.infer<typeof WorkspaceInfo>;
+
+/** The registered workspaces, the one used by default, and entries of the config that were skipped. */
+export const WorkspaceList = z.object({
+  workspaces: z.array(WorkspaceInfo),
+  defaultId: z.string().min(1),
+  errors: z.array(z.object({ source: z.string(), message: z.string() })),
+});
+export type WorkspaceList = z.infer<typeof WorkspaceList>;
+
+/** The list after a folder was chosen in the dialog; `added` is null when the user cancelled. */
+export const WorkspaceAdded = WorkspaceList.extend({ added: WorkspaceInfo.nullable() });
+export type WorkspaceAdded = z.infer<typeof WorkspaceAdded>;

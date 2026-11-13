@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { projectRun } from '@orbit/core';
 import {
   EARLY_STOP_PREFIX,
@@ -32,6 +34,7 @@ export function summarizeSession(
   const lastEvents = runs.at(-1) ?? [];
   const last = projectRun(lastEvents);
 
+  const workspace = first?.workspace ?? '';
   const waiting = last.toolCalls.some((call) => call.status === 'awaiting');
   let status: SessionStatus = 'idle';
   if (last.status === 'running') status = waiting ? 'awaiting' : 'running';
@@ -52,5 +55,7 @@ export function summarizeSession(
     runCount: runs.length,
     status,
     updatedAt: lastEvents.at(-1)?.ts ?? 0,
+    workspace,
+    workspaceName: workspace === '' ? '' : path.basename(workspace) || workspace,
   };
 }

@@ -9,7 +9,10 @@ interface SessionRow {
   removed: number;
 }
 
-/** Sessions in SQLite. Removing one hides it; its events stay in the append-only log. */
+/**
+ * Sessions in SQLite. Removing one archives it (`removed = 1`) and nothing is lost; purging it
+ * (`removed = 2`) forgets its runs and title but keeps the row, so the id stays taken.
+ */
 export class SqliteSessionStore implements SessionStore {
   constructor(
     private readonly db: Db,
@@ -69,6 +72,32 @@ export class SqliteSessionStore implements SessionStore {
       .prepare('UPDATE sessions SET removed = 1 WHERE session_id = ? AND removed = 0')
       .run(sessionId);
     return result.changes > 0;
+  }
+
+  listRemoved(): SessionRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM sessions WHERE removed = 1 ORDER BY created_at, rowid')
+      .all() as SessionRow[];
+    return rows.map((row) => this.record(row));
+  }
+
+  restore(sessionId: string): boolean {
+    const result = this.db
+      .prepare('UPDATE sessions SET removed = 0 WHERE session_id = ? AND removed = 1')
+      .run(sessionId);
+    return result.changes > 0;
+  }
+
+  purge(sessionId: string): boolean {
+    return this.db.transaction((): boolean => {
+      const row = this.row(sessionId);
+      if (!row || row.removed !== 1) return false;
+      this.db.prepare('DELETE FROM session_runs WHERE session_id = ?').run(sessionId);
+      this.db
+        .prepare('UPDATE sessions SET removed = 2, title = NULL WHERE session_id = ?')
+        .run(sessionId);
+      return true;
+    })();
   }
 
   private row(sessionId: string): SessionRow | undefined {

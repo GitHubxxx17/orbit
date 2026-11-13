@@ -3,7 +3,8 @@
 SQLite implementations of `EventStore` and `SessionStore` (ADR 0004).
 
 - Depends on `@orbit/core` and `@orbit/protocol` only. Never import apps or tools.
-- Events are append-only. Never add an UPDATE or DELETE on `events`; the triggers would abort it.
+- Events are append-only. Never add an UPDATE on `events`, and never a DELETE except
+  `deleteRuns`, which the trigger only allows for runs of an archived conversation (ADR 0015).
 - A schema change means a new migration step and a bump of `SCHEMA_VERSION`. Never edit the SQL of
   an already released version.
 - Validate with the protocol schema on write and on read. An unreadable row must throw.

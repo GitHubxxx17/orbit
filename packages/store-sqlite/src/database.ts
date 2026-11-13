@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 export type Db = Database.Database;
 
 /** The schema version this code understands; stored in SQLite's `user_version`. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA_V1 = `
   -- Every fact about a run. Rows are only ever added: the triggers below refuse any change.
@@ -42,6 +42,23 @@ const SCHEMA_V1 = `
 `;
 
 /**
+ * Version 2 (ADR 0015): events may be deleted, but only those of a run whose conversation is in
+ * the archive (`removed = 1`). The rule lives in the database, so a bug elsewhere still cannot
+ * delete the history of a conversation that is in use. Changing an event is still never allowed.
+ */
+const SCHEMA_V2 = `
+  DROP TRIGGER events_no_delete;
+
+  CREATE TRIGGER events_no_delete BEFORE DELETE ON events
+  WHEN NOT EXISTS (
+    SELECT 1 FROM session_runs r
+    JOIN sessions s ON s.session_id = r.session_id
+    WHERE r.run_id = OLD.run_id AND s.removed = 1
+  )
+  BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+`;
+
+/**
  * Open (creating if needed) the database file and bring its schema up to date. The file holds
  * whole conversations, including the contents of files the agent read, so a new file and its
  * folder are readable by the current user only.
@@ -71,6 +88,12 @@ function migrate(db: Db): void {
     db.transaction(() => {
       db.exec(SCHEMA_V1);
       db.pragma('user_version = 1');
+    })();
+  }
+  if (current < 2) {
+    db.transaction(() => {
+      db.exec(SCHEMA_V2);
+      db.pragma('user_version = 2');
     })();
   }
 }

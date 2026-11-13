@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   deleteSession,
   fetchInfo,
+  pickWorkspace,
+  purgeSession,
+  restoreSession,
   forkSession,
   renameSession,
   rollbackChange,
@@ -21,6 +24,8 @@ import { Sidebar } from '@/components/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ArchiveView } from '@/components/archive-view';
+import { useArchive } from '@/hooks/use-archive';
 import { useAgents } from '@/hooks/use-agents';
 import { useAppearance } from '@/hooks/use-appearance';
 import { useBalance } from '@/hooks/use-balance';
@@ -29,6 +34,7 @@ import { PreferencesContext, usePreferencesState } from '@/hooks/use-preferences
 import { useReplay } from '@/hooks/use-replay';
 import { useRun } from '@/hooks/use-run';
 import { useSessions } from '@/hooks/use-sessions';
+import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useTheme } from '@/hooks/use-theme';
 import { balanceChip } from '@/lib/balance';
 import { collectChanges, type Change } from '@/state/changes';
@@ -59,6 +65,11 @@ export function App() {
   const { preferences, setPreferences } = usePreferencesState();
   const models = useModels();
   const agents = useAgents();
+  const workspaces = useWorkspaces();
+  const [pickedWorkspace, setPickedWorkspace] = useState<string | null>(null);
+  const [addingWorkspace, setAddingWorkspace] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const archive = useArchive();
   const [pickedAgent, setPickedAgent] = useState<string | null>(null);
   // The model the user picked for new runs; until they pick, the default one is used.
   const [pickedModel, setPickedModel] = useState<string | null>(null);
@@ -101,7 +112,17 @@ export function App() {
   const running = view.status === 'running';
   const hasConversation = session.turns.length > 0;
   const canSend = text.trim() !== '' && !running && info !== null;
-  const workspaceName = info?.workspaceName ?? '工作区';
+  // A new conversation works in the folder picked (or the default); an existing one keeps the
+  // folder it started in, which the session list knows.
+  const workspaceId =
+    workspaces.list.workspaces.find((w) => w.id === pickedWorkspace)?.id ??
+    (workspaces.list.defaultId || undefined);
+  const chosenWorkspace = workspaces.list.workspaces.find((w) => w.id === workspaceId);
+  const workspaceName =
+    (sessionId ? sessions.find((s) => s.sessionId === sessionId)?.workspaceName : undefined) ||
+    chosenWorkspace?.name ||
+    info?.workspaceName ||
+    '工作区';
   const modelId =
     models.list.models.find((m) => m.id === pickedModel)?.id ?? models.list.defaultId ?? undefined;
   const agentId = agents.list.agents.find((a) => a.id === pickedAgent)?.id ?? 'default';
@@ -128,6 +149,34 @@ export function App() {
 
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // The folder is chosen in the operating system's dialog, which the server opens; this page
+  // never sends a path. When a folder is added, a new conversation starts in it.
+  const addWorkspace = () => {
+    setActionError(null);
+    setAddingWorkspace(true);
+    pickWorkspace()
+      .then(
+        (result) => {
+          workspaces.adopt(result);
+          if (result.added) {
+            setArchiveOpen(false);
+            replay.exit();
+            newSession();
+            setPickedWorkspace(result.added.id);
+          }
+        },
+        (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+      )
+      .finally(() => setAddingWorkspace(false));
+  };
+
+  const newIn = (id: string) => {
+    setArchiveOpen(false);
+    replay.exit();
+    newSession();
+    setPickedWorkspace(id);
+  };
+
   const rename = (id: string, title: string) => {
     setActionError(null);
     renameSession(id, title).then(refreshSessions, (e: unknown) =>
@@ -142,8 +191,28 @@ export function App() {
         // If the open conversation was the one deleted, leave it.
         if (id === sessionId) newSession();
         refreshSessions();
+        archive.refresh();
       },
       (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+    );
+  };
+
+  const restore = (id: string) => {
+    setActionError(null);
+    restoreSession(id).then(
+      () => {
+        refreshSessions();
+        archive.refresh();
+      },
+      (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+    );
+  };
+
+  // Deleting for good: the archive view has already asked the user to confirm.
+  const purge = (id: string) => {
+    setActionError(null);
+    purgeSession(id).then(archive.refresh, (e: unknown) =>
+      setActionError(e instanceof Error ? e.message : String(e)),
     );
   };
 
@@ -183,6 +252,7 @@ export function App() {
       approval,
       mode === 'live' ? modelId : undefined,
       mode === 'live' && agentId !== 'default' ? agentId : undefined,
+      sessionId === null ? workspaceId : undefined,
     ).then((sent) => {
       if (!sent) setText(prompt);
     });
@@ -202,6 +272,10 @@ export function App() {
       approval={approval}
       onApproval={setApproval}
       workspaceName={workspaceName}
+      workspaces={workspaces.list.workspaces}
+      workspaceId={workspaceId ?? null}
+      onWorkspaceChange={setPickedWorkspace}
+      workspaceLocked={sessionId !== null}
       modelLabel={modelLabel}
       balance={chip}
       models={models.list.models}
@@ -222,6 +296,7 @@ export function App() {
           void loadInfo();
           void models.reload();
           void agents.reload();
+          void workspaces.reload();
         }}
         appearance={appearance}
         onAppearance={setAppearance}
@@ -237,15 +312,26 @@ export function App() {
         {sidebarOpen && (
           <div className="hidden md:block">
             <Sidebar
-              workspaceName={workspaceName}
+              archivedCount={archive.sessions.length}
+              archiveOpen={archiveOpen}
+              onOpenArchive={() => {
+                replay.exit();
+                setArchiveOpen(true);
+              }}
+              workspaces={workspaces.list.workspaces}
+              onAddWorkspace={addWorkspace}
+              addingWorkspace={addingWorkspace}
+              onNewIn={newIn}
               sessions={sessions}
               failed={sessionsFailed}
               activeId={sessionId}
               onSelect={(id) => {
+                setArchiveOpen(false);
                 replay.exit();
                 void openSession(id);
               }}
               onNew={() => {
+                setArchiveOpen(false);
                 replay.exit();
                 newSession();
               }}
@@ -257,121 +343,135 @@ export function App() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hidden md:inline-flex"
-              onClick={() => setSidebarOpen((open) => !open)}
-              aria-label={sidebarOpen ? '收起会话栏' : '展开会话栏'}
-              aria-expanded={sidebarOpen}
-            >
-              <PanelLeft aria-hidden className="size-4" />
-            </Button>
-            <Orbit aria-hidden className="size-5 text-sky-500" />
-            <span className="text-sm font-semibold tracking-tight">星轨</span>
-            <span aria-hidden className="text-muted-foreground">
-              /
-            </span>
-            <h1 className="min-w-0 flex-1 truncate text-sm text-muted-foreground" title={title}>
-              {title}
-            </h1>
+          {archiveOpen ? (
+            <ArchiveView
+              sessions={archive.sessions}
+              failed={archive.failed}
+              onRestore={restore}
+              onPurge={purge}
+              onClose={() => setArchiveOpen(false)}
+            />
+          ) : (
+            <>
+              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hidden md:inline-flex"
+                  onClick={() => setSidebarOpen((open) => !open)}
+                  aria-label={sidebarOpen ? '收起会话栏' : '展开会话栏'}
+                  aria-expanded={sidebarOpen}
+                >
+                  <PanelLeft aria-hidden className="size-4" />
+                </Button>
+                <Orbit aria-hidden className="size-5 text-sky-500" />
+                <span className="text-sm font-semibold tracking-tight">星轨</span>
+                <span aria-hidden className="text-muted-foreground">
+                  /
+                </span>
+                <h1 className="min-w-0 flex-1 truncate text-sm text-muted-foreground" title={title}>
+                  {title}
+                </h1>
 
-            {hasConversation && !replaying && (
-              <Badge variant={running ? 'default' : 'secondary'}>{STATUS_LABEL[view.status]}</Badge>
-            )}
-            {replaying && <Badge variant="secondary">回放中</Badge>}
-            {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
-            {sessionId && !running && !replaying && hasConversation && (
-              <Button variant="ghost" size="sm" onClick={() => void replay.enter(sessionId)}>
-                <Rewind aria-hidden className="size-3.5" />
-                回放
-              </Button>
-            )}
-            <ThemeToggle theme={theme} onCycle={cycleTheme} />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hidden lg:inline-flex"
-              onClick={() => setPanelOpen((open) => !open)}
-              aria-label={panelOpen ? '收起侧栏' : '展开侧栏'}
-              aria-expanded={panelOpen}
-            >
-              <PanelRight aria-hidden className="size-4" />
-            </Button>
-          </header>
+                {hasConversation && !replaying && (
+                  <Badge variant={running ? 'default' : 'secondary'}>
+                    {STATUS_LABEL[view.status]}
+                  </Badge>
+                )}
+                {replaying && <Badge variant="secondary">回放中</Badge>}
+                {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
+                {sessionId && !running && !replaying && hasConversation && (
+                  <Button variant="ghost" size="sm" onClick={() => void replay.enter(sessionId)}>
+                    <Rewind aria-hidden className="size-3.5" />
+                    回放
+                  </Button>
+                )}
+                <ThemeToggle theme={theme} onCycle={cycleTheme} />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hidden lg:inline-flex"
+                  onClick={() => setPanelOpen((open) => !open)}
+                  aria-label={panelOpen ? '收起侧栏' : '展开侧栏'}
+                  aria-expanded={panelOpen}
+                >
+                  <PanelRight aria-hidden className="size-4" />
+                </Button>
+              </header>
 
-          {actionError && (
-            <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
-              {actionError}
-            </p>
-          )}
+              {actionError && (
+                <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                  {actionError}
+                </p>
+              )}
 
-          {infoFailed && (
-            <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
-              连不上服务端。请先在另一个终端启动服务端：pnpm --filter @orbit/server dev。
-            </p>
-          )}
+              {infoFailed && (
+                <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                  连不上服务端。请先在另一个终端启动服务端：pnpm --filter @orbit/server dev。
+                </p>
+              )}
 
-          <div className="flex min-h-0 flex-1">
-            <main className="flex min-w-0 flex-1 flex-col" aria-label="对话">
-              {hasConversation || replaying ? (
-                <>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    <Conversation
-                      session={shown}
-                      liveModel={info?.liveModel ?? null}
-                      onApprove={replaying ? null : approve}
-                      onFork={replaying || !sessionId ? null : fork}
+              <div className="flex min-h-0 flex-1">
+                <main className="flex min-w-0 flex-1 flex-col" aria-label="对话">
+                  {hasConversation || replaying ? (
+                    <>
+                      <div className="min-h-0 flex-1 overflow-y-auto">
+                        <Conversation
+                          session={shown}
+                          liveModel={info?.liveModel ?? null}
+                          onApprove={replaying ? null : approve}
+                          onFork={replaying || !sessionId ? null : fork}
+                        />
+                      </div>
+                      <div className="mx-auto w-full max-w-(--content-max) p-3">
+                        {(error ?? replay.error) && (
+                          <p role="alert" className="mb-2 text-sm text-destructive">
+                            {error ?? replay.error}
+                          </p>
+                        )}
+                        {replaying ? (
+                          <ReplayBar
+                            step={replay.step}
+                            total={replay.total}
+                            current={replay.current}
+                            playing={replay.playing}
+                            onGoTo={replay.goTo}
+                            onToggle={replay.toggle}
+                            onExit={replay.exit}
+                          />
+                        ) : (
+                          composer
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-8 p-6">
+                      <EmptyState workspaceName={workspaceName} onPick={setText} />
+                      <div className="w-full max-w-2xl">
+                        {error && (
+                          <p role="alert" className="mb-2 text-sm text-destructive">
+                            {error}
+                          </p>
+                        )}
+                        {composer}
+                      </div>
+                    </div>
+                  )}
+                </main>
+
+                {panelOpen && (
+                  <div className="hidden lg:block">
+                    <RightPanel
+                      rows={shownLast.rows}
+                      lastSeq={shownLast.lastSeq}
+                      changes={shownChanges}
+                      onRollback={replaying ? null : rollback}
                     />
                   </div>
-                  <div className="mx-auto w-full max-w-(--content-max) p-3">
-                    {(error ?? replay.error) && (
-                      <p role="alert" className="mb-2 text-sm text-destructive">
-                        {error ?? replay.error}
-                      </p>
-                    )}
-                    {replaying ? (
-                      <ReplayBar
-                        step={replay.step}
-                        total={replay.total}
-                        current={replay.current}
-                        playing={replay.playing}
-                        onGoTo={replay.goTo}
-                        onToggle={replay.toggle}
-                        onExit={replay.exit}
-                      />
-                    ) : (
-                      composer
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-1 flex-col items-center justify-center gap-8 p-6">
-                  <EmptyState workspaceName={workspaceName} onPick={setText} />
-                  <div className="w-full max-w-2xl">
-                    {error && (
-                      <p role="alert" className="mb-2 text-sm text-destructive">
-                        {error}
-                      </p>
-                    )}
-                    {composer}
-                  </div>
-                </div>
-              )}
-            </main>
-
-            {panelOpen && (
-              <div className="hidden lg:block">
-                <RightPanel
-                  rows={shownLast.rows}
-                  lastSeq={shownLast.lastSeq}
-                  changes={shownChanges}
-                  onRollback={replaying ? null : rollback}
-                />
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
     </PreferencesContext.Provider>

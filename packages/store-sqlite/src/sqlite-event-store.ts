@@ -38,6 +38,17 @@ export class SqliteEventStore implements EventStore {
     })();
   }
 
+  /**
+   * Delete whole runs. The database refuses unless every run belongs to an archived conversation
+   * (ADR 0015), so this throws for a conversation that is in use.
+   */
+  deleteRuns(runIds: readonly string[]): void {
+    const remove = this.db.prepare('DELETE FROM events WHERE run_id = ?');
+    this.db.transaction(() => {
+      for (const runId of runIds) remove.run(runId);
+    })();
+  }
+
   read(runId: string, afterSeq = 0): OrbitEvent[] {
     const rows = this.select.all(runId, afterSeq) as { data: string }[];
     return rows.map(({ data }, index) => {

@@ -25,7 +25,9 @@ Read `docs/architecture.md` before changing anything in `packages/` or `apps/ser
 
 ## Hard rules
 
-- Run state is an append-only event log. Never mutate or delete a stored event.
+- Run state is an append-only event log. Never mutate or delete a stored event. The single
+  exception is deleting the whole runs of an _archived_ conversation the user chose to delete for
+  good (`EventStore.deleteRuns`, ADR 0015); the database refuses it for anything else.
 - Define an event shape once, in `packages/protocol`. Do not redeclare it elsewhere.
 - Validate every external input (HTTP, files, model output, MCP) with zod before use.
 - Server binds to `127.0.0.1` only. Do not change this without an ADR.

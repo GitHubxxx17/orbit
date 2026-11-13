@@ -14,6 +14,7 @@ import type { ApprovalResolver } from './approvals.js';
 import type { BroadcastingStore } from './broadcast-store.js';
 import type { ModelManager } from './models.js';
 import { SettingsError } from './models.js';
+import { WorkspaceError, type WorkspaceManager } from './workspaces.js';
 import { RunRejected, type RunStarter } from './runs.js';
 
 export interface AppDeps {
@@ -22,6 +23,8 @@ export interface AppDeps {
   approvals: ApprovalResolver;
   /** Model settings; absent in tests that do not exercise them. */
   models?: Pick<ModelManager, 'list' | 'save' | 'remove' | 'setDefault' | 'test' | 'balance'>;
+  /** The registered workspaces. Absent in tests that do not exercise them. */
+  workspaces?: Pick<WorkspaceManager, 'list' | 'pickAndAdd' | 'remove'>;
   /** Agent profiles; absent in tests that do not exercise them. */
   agents?: Pick<AgentManager, 'list' | 'save' | 'remove' | 'tools'>;
   /** The configured MCP servers, read-only. Absent in tests that do not exercise them. */
@@ -38,9 +41,13 @@ const StartBody = z.object({
   modelId: z.string().min(1).optional(),
   /** An agent profile for this run (live mode); omit it for the built-in agent. */
   agentId: z.string().min(1).optional(),
+  /** A registered workspace for a new conversation; an id, never a path. */
+  workspaceId: z.string().min(1).optional(),
 });
 
 const DefaultBody = z.object({ id: z.string().min(1) });
+/** The only thing the page may say about a new workspace: what to call it. */
+const PickBody = z.object({ name: z.string().trim().min(1).max(40).optional() }).strict();
 
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 
@@ -61,7 +68,7 @@ function requireJson(contentType: string | undefined) {
     : { body: { error: 'content-type must be application/json' }, status: 415 as const };
 }
 
-export function createApp({ store, runs, approvals, models, agents, mcp }: AppDeps) {
+export function createApp({ store, runs, approvals, models, agents, workspaces, mcp }: AppDeps) {
   const app = new Hono();
 
   // A web page in the user's browser must not be able to drive this local server through DNS
@@ -105,6 +112,22 @@ export function createApp({ store, runs, approvals, models, agents, mcp }: AppDe
     return c.json({ ok: true });
   });
 
+  // The archive: conversations the user removed from the list. They can be brought back, or deleted
+  // for good, which also deletes their events (ADR 0015).
+  app.get('/archive', (c) => c.json({ sessions: runs.listArchived() }));
+
+  app.post('/archive/:sessionId/restore', (c) =>
+    runs.restore(c.req.param('sessionId')) === 'ok'
+      ? c.json({ ok: true })
+      : c.json({ error: 'unknown archived session' }, 404),
+  );
+
+  app.delete('/archive/:sessionId', (c) =>
+    runs.purge(c.req.param('sessionId')) === 'ok'
+      ? c.json({ ok: true })
+      : c.json({ error: 'unknown archived session' }, 404),
+  );
+
   // Start a new conversation from the first `upToRun` runs of this one; the original is untouched.
   app.post('/sessions/:sessionId/fork', async (c) => {
     const notJson = requireJson(c.req.header('content-type'));
@@ -136,6 +159,40 @@ export function createApp({ store, runs, approvals, models, agents, mcp }: AppDe
         return c.json({ error: outcome.message }, 409);
     }
   });
+
+  if (workspaces) {
+    // Which folders the agent may work in is decided on this machine (ADR 0014). The page can read
+    // the list and ask the server to open the operating system's folder dialog, but no request
+    // carries a path: the folder is whatever the person at this machine chooses in that dialog.
+    app.get('/workspaces', (c) => c.json(workspaces.list()));
+
+    const workspaceFailure = (error: unknown) => {
+      if (error instanceof WorkspaceError) return { message: error.message, status: error.status };
+      throw error;
+    };
+
+    app.post('/workspaces/pick', async (c) => {
+      const notJson = requireJson(c.req.header('content-type'));
+      if (notJson) return c.json(notJson.body, notJson.status);
+      const body = PickBody.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+      try {
+        return c.json(await workspaces.pickAndAdd(body.data.name));
+      } catch (error) {
+        const failure = workspaceFailure(error);
+        return c.json({ error: failure.message }, failure.status);
+      }
+    });
+
+    app.delete('/workspaces/:id', (c) => {
+      try {
+        return c.json(workspaces.remove(c.req.param('id')));
+      } catch (error) {
+        const failure = workspaceFailure(error);
+        return c.json({ error: failure.message }, failure.status);
+      }
+    });
+  }
 
   if (mcp) {
     // Read-only on purpose: a stdio MCP server is a program that starts on this machine, so the

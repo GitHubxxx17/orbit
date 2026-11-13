@@ -11,6 +11,13 @@ export interface EventStore {
   append(runId: string, draft: EventDraft): OrbitEvent;
   /** Read a run's events in order, optionally starting after a given seq. */
   read(runId: string, afterSeq?: number): OrbitEvent[];
+  /**
+   * Delete whole runs. This is the only way events ever leave a store (ADR 0015), and it exists
+   * for one thing: a conversation the user moved to the archive and then chose to delete for good.
+   * Never partial, never a single event. A store that can enforce this must refuse for any run
+   * whose conversation is not archived.
+   */
+  deleteRuns(runIds: readonly string[]): void;
 }
 
 export interface Clock {
@@ -49,5 +56,9 @@ export class InMemoryEventStore implements EventStore {
     return (this.runs.get(runId) ?? [])
       .filter((e) => e.seq > afterSeq)
       .map((e) => structuredClone(e));
+  }
+
+  deleteRuns(runIds: readonly string[]): void {
+    for (const runId of runIds) this.runs.delete(runId);
   }
 }
