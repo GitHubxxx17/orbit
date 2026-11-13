@@ -21,6 +21,7 @@ import { Sidebar } from '@/components/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useAgents } from '@/hooks/use-agents';
 import { useAppearance } from '@/hooks/use-appearance';
 import { useBalance } from '@/hooks/use-balance';
 import { useModels } from '@/hooks/use-models';
@@ -57,6 +58,8 @@ export function App() {
   const { appearance, setAppearance } = useAppearance();
   const { preferences, setPreferences } = usePreferencesState();
   const models = useModels();
+  const agents = useAgents();
+  const [pickedAgent, setPickedAgent] = useState<string | null>(null);
   // The model the user picked for new runs; until they pick, the default one is used.
   const [pickedModel, setPickedModel] = useState<string | null>(null);
 
@@ -101,6 +104,7 @@ export function App() {
   const workspaceName = info?.workspaceName ?? '工作区';
   const modelId =
     models.list.models.find((m) => m.id === pickedModel)?.id ?? models.list.defaultId ?? undefined;
+  const agentId = agents.list.agents.find((a) => a.id === pickedAgent)?.id ?? 'default';
   const chosen = models.list.models.find((m) => m.id === modelId);
   const modelLabel =
     mode === 'live' ? (chosen?.model ?? info?.liveModel ?? '真实模型') : '演示模型';
@@ -112,6 +116,15 @@ export function App() {
     modelId,
   );
   const chip = balanceChip(balance);
+
+  // Choosing an agent that has its own model also selects that model; the user can still change it.
+  const pickAgent = (id: string) => {
+    setPickedAgent(id);
+    const target = agents.list.agents.find((a) => a.id === id);
+    if (target?.modelId && models.list.models.some((m) => m.id === target.modelId)) {
+      setPickedModel(target.modelId);
+    }
+  };
 
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -164,7 +177,13 @@ export function App() {
     const prompt = text.trim();
     setText('');
     // If it could not be sent, give the text back so it is not lost.
-    void start(prompt, mode, approval, mode === 'live' ? modelId : undefined).then((sent) => {
+    void start(
+      prompt,
+      mode,
+      approval,
+      mode === 'live' ? modelId : undefined,
+      mode === 'live' && agentId !== 'default' ? agentId : undefined,
+    ).then((sent) => {
       if (!sent) setText(prompt);
     });
   };
@@ -188,6 +207,9 @@ export function App() {
       models={models.list.models}
       modelId={modelId ?? null}
       onModelChange={setPickedModel}
+      agents={agents.list.agents}
+      agentId={agentId}
+      onAgentChange={pickAgent}
       placeholder={hasConversation ? '继续追问…（Enter 发送，Shift+Enter 换行）' : '随心输入'}
     />
   );
@@ -199,6 +221,7 @@ export function App() {
         onChanged={() => {
           void loadInfo();
           void models.reload();
+          void agents.reload();
         }}
         appearance={appearance}
         onAppearance={setAppearance}

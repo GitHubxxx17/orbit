@@ -1,4 +1,5 @@
 import {
+  AgentList,
   ForkResult,
   McpStatus,
   ModelBalance,
@@ -8,6 +9,9 @@ import {
   ServerInfo,
   SessionList,
   SessionRuns,
+  ToolList,
+  type AgentInput,
+  type AgentProfile,
   type ModelInput,
   type ModelProfile,
   type ModelTestInput,
@@ -16,6 +20,8 @@ import {
 } from '@orbit/protocol';
 
 export type {
+  AgentList,
+  AgentProfile,
   ModelBalance,
   ModelInput,
   ModelList,
@@ -86,6 +92,7 @@ export async function startRun(
   approval: ApprovalMode,
   sessionId?: string,
   modelId?: string,
+  agentId?: string,
 ): Promise<StartedRun> {
   const res = await fetch('/api/runs', {
     method: 'POST',
@@ -96,6 +103,7 @@ export async function startRun(
       approval,
       ...(sessionId ? { sessionId } : {}),
       ...(modelId ? { modelId } : {}),
+      ...(agentId ? { agentId } : {}),
     }),
   });
   if (!res.ok) throw await failure(res);
@@ -212,3 +220,26 @@ export const fetchBalance = (modelId?: string, force = false): Promise<ModelBala
     ModelBalance.parse(data),
   );
 };
+
+export const fetchAgents = (): Promise<AgentList> =>
+  getJson('/api/agents', (data) => AgentList.parse(data));
+
+/** The tools an agent can be given (including those from MCP servers). */
+export const fetchTools = (): Promise<ToolList> =>
+  getJson('/api/agents/tools', (data) => ToolList.parse(data));
+
+/** Add an agent (`id` null) or change one. Resolves with the whole list as the server now has it. */
+export async function saveAgent(id: string | null, input: AgentInput): Promise<AgentList> {
+  const res =
+    id === null
+      ? await sendJson('POST', '/api/agents', input)
+      : await sendJson('PUT', `/api/agents/${encodeURIComponent(id)}`, input);
+  if (!res.ok) throw await failure(res);
+  return AgentList.parse(await res.json());
+}
+
+export async function removeAgent(id: string): Promise<AgentList> {
+  const res = await sendJson('DELETE', `/api/agents/${encodeURIComponent(id)}`);
+  if (!res.ok) throw await failure(res);
+  return AgentList.parse(await res.json());
+}

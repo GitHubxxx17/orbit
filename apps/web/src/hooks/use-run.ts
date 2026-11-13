@@ -79,13 +79,21 @@ export function useRun() {
       mode: RunMode,
       approval: ApprovalMode,
       modelId?: string,
+      agentId?: string,
     ): Promise<boolean> => {
       close();
       buffer.current = [];
       setError(null);
       dispatch({ type: 'new-turn', prompt });
       try {
-        const started = await startRun(prompt, mode, approval, sessionId ?? undefined, modelId);
+        const started = await startRun(
+          prompt,
+          mode,
+          approval,
+          sessionId ?? undefined,
+          modelId,
+          agentId,
+        );
         setSessionId(started.sessionId);
         follow(started.runId);
         return true;
