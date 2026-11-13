@@ -80,6 +80,7 @@ export function useRun() {
       approval: ApprovalMode,
       modelId?: string,
       agentId?: string,
+      workspaceId?: string,
     ): Promise<boolean> => {
       close();
       buffer.current = [];
@@ -93,6 +94,7 @@ export function useRun() {
           sessionId ?? undefined,
           modelId,
           agentId,
+          workspaceId,
         );
         setSessionId(started.sessionId);
         follow(started.runId);

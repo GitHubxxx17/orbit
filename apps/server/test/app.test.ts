@@ -41,6 +41,9 @@ function setup(overrides: Partial<RunStarter> = {}) {
     sessionRuns: () => undefined,
     rename: () => false,
     remove: () => 'unknown',
+    listArchived: () => [],
+    restore: () => 'unknown',
+    purge: () => 'unknown',
     rollback: async () => ({ status: 'unknown' }),
     fork: () => ({ status: 'unknown' }),
     info: () => ({ workspace: '/w', workspaceName: 'w', liveModel: null }),
@@ -541,6 +544,8 @@ describe('session list and info', () => {
       runCount: 1,
       status: 'idle' as const,
       updatedAt: 5,
+      workspace: '/w',
+      workspaceName: 'w',
     };
     const { app } = setup({ listSessions: () => [summary] });
     expect(await (await call(app, '/sessions')).json()).toEqual({ sessions: [summary] });

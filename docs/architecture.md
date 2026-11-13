@@ -53,6 +53,8 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Token usage per turn               | implemented |
 | Several saved models, per run      | implemented |
 | Agent profiles (model, tools)      | implemented |
+| Several workspaces                 | implemented |
+| Archive and delete for good        | implemented |
 | Desktop shell                      | planned     |
 
 When you implement a planned part, update this table in the same change.

@@ -4,12 +4,14 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   historyFromRuns,
   InMemorySessionStore,
+  projectRun,
   readOnlyPolicy,
   runAgent,
   type Approver,
   type EventStore,
   type LlmClient,
   type Policy,
+  type SessionRecord,
   type SessionStore,
   type ToolRegistry,
 } from '@orbit/core';
@@ -55,8 +57,14 @@ export interface RunStarter {
   sessionRuns(sessionId: string): string[] | undefined;
   /** Give a session a title of the user's choosing. False for an unknown session. */
   rename(sessionId: string, title: string): boolean;
-  /** Hide a session; its events stay. `busy` while a run of it is going. */
+  /** Archive a session: hidden from the list, nothing deleted. `busy` while a run of it is going. */
   remove(sessionId: string): 'ok' | 'unknown' | 'busy';
+  /** The archived sessions, most recently active first. */
+  listArchived(): SessionSummary[];
+  /** Bring an archived session back into the list. */
+  restore(sessionId: string): 'ok' | 'unknown';
+  /** Delete an archived session and all its events for good (ADR 0015). Cannot be undone. */
+  purge(sessionId: string): 'ok' | 'unknown';
   /**
    * Undo one file write of a finished run. Only when nothing is running, because a run could be
    * writing the same files; `conflict` when the file no longer holds what the agent wrote.
@@ -93,12 +101,34 @@ export class RunRejected extends Error {
   }
 }
 
+type Rollback = (change: { path: string; before: string | null; after: string }) => Promise<void>;
+
+/** A folder a run works in, with the tools and rollback that are confined to it. */
+export interface RunWorkspace {
+  id: string;
+  name: string;
+  path: string;
+  registry: ToolRegistry;
+  rollback?: Rollback | undefined;
+}
+
+/** Where runs get their workspace from. The server decides which exist; a run only names an id. */
+export interface WorkspaceSource {
+  primary(): RunWorkspace;
+  resolve(id?: string): RunWorkspace | undefined;
+  /** The workspace a stored run belongs to, found by the path its run.started recorded. */
+  byPath(path: string): RunWorkspace | undefined;
+}
+
 export interface RunManagerOptions {
   store: EventStore;
   registry: ToolRegistry;
   /** Agent profiles; without it every run uses the built-in agent. */
   agents?: { resolve(id?: string): ResolvedAgent | undefined };
+  /** The only workspace, used when `workspaces` is not given (and as its primary one). */
   workspace: string;
+  /** All registered workspaces; without it every run uses `workspace` and `registry`. */
+  workspaces?: WorkspaceSource;
   demoLlm: LlmClient;
   /** The model for live mode right now; asked on every call so saved settings apply at once. */
   live?: (modelId?: string) => { llm: LlmClient; name: string } | undefined;
@@ -127,8 +157,22 @@ export class RunManager implements RunStarter {
   /** Which runs belong to which session. The conversation itself lives in the event logs. */
   private readonly sessions: SessionStore;
 
+  private readonly workspaces: WorkspaceSource;
+
   constructor(private readonly options: RunManagerOptions) {
     this.sessions = options.sessions ?? new InMemorySessionStore();
+    const only: RunWorkspace = {
+      id: 'primary',
+      name: path.basename(options.workspace) || options.workspace,
+      path: options.workspace,
+      registry: options.registry,
+      rollback: options.rollback,
+    };
+    this.workspaces = options.workspaces ?? {
+      primary: () => only,
+      resolve: (id) => (id === undefined || id === only.id ? only : undefined),
+      byPath: () => only,
+    };
   }
 
   modes(): RunMode[] {
@@ -142,6 +186,7 @@ export class RunManager implements RunStarter {
     sessionId,
     modelId,
     agentId,
+    workspaceId,
   }: {
     prompt: string;
     mode: RunMode;
@@ -149,6 +194,7 @@ export class RunManager implements RunStarter {
     sessionId?: string | undefined;
     modelId?: string | undefined;
     agentId?: string | undefined;
+    workspaceId?: string | undefined;
   }): {
     runId: string;
     sessionId: string;
@@ -172,6 +218,23 @@ export class RunManager implements RunStarter {
     const existing = sessionId === undefined ? undefined : this.sessions.get(sessionId);
     if (sessionId !== undefined && !existing) throw new RunRejected('unknown session', 404);
     const previousRuns = existing?.runIds ?? [];
+    // A conversation keeps the workspace its first run recorded; a new one takes the id asked for
+    // (or the default). The id must be one the server registered: a path is never accepted.
+    let workspace: RunWorkspace | undefined;
+    const firstRun = previousRuns[0];
+    if (firstRun !== undefined) {
+      const recorded = projectRun(this.options.store.read(firstRun)).workspace;
+      workspace = recorded === null ? undefined : this.workspaces.byPath(recorded);
+      if (!workspace) {
+        throw new RunRejected('the workspace of this conversation is no longer registered', 409);
+      }
+      if (workspaceId !== undefined && workspaceId !== workspace.id) {
+        throw new RunRejected('a conversation keeps its workspace', 400);
+      }
+    } else {
+      workspace = this.workspaces.resolve(workspaceId);
+      if (!workspace) throw new RunRejected('unknown workspace', 400);
+    }
     if ([...this.active.values()].some((run) => run.sessionId === sessionId)) {
       throw new RunRejected('this session already has a run in progress', 409);
     }
@@ -197,13 +260,13 @@ export class RunManager implements RunStarter {
         mode !== 'live' ? 'orbit-demo' : agent && !agent.builtin ? agent.id : 'orbit-default',
       ...(agent && !agent.builtin ? { agentName: agent.name } : {}),
       ...(live ? { modelName: live.name } : {}),
-      workspace: this.options.workspace,
+      workspace: workspace.path,
       llm,
       store: this.options.store,
       // `report` stays: the evidence check (ADR 0007) must work for every agent.
       registry: agent?.tools
-        ? this.options.registry.pick([...agent.tools, 'report'])
-        : this.options.registry,
+        ? workspace.registry.pick([...agent.tools, 'report'])
+        : workspace.registry,
       systemPrompt: agent?.instructions
         ? `${DEFAULT_SYSTEM_PROMPT}\n\nAdditional instructions from the user for this agent:\n${agent.instructions}`
         : DEFAULT_SYSTEM_PROMPT,
@@ -225,16 +288,24 @@ export class RunManager implements RunStarter {
     return { runId, sessionId: session };
   }
 
+  private summarize(record: SessionRecord): SessionSummary {
+    const summary = summarizeSession(
+      record.sessionId,
+      record.runIds.map((runId) => this.options.store.read(runId)),
+      record.title,
+    );
+    const registered = summary.workspace ? this.workspaces.byPath(summary.workspace) : undefined;
+    // A registered workspace is shown by its canonical path and name, so old logs that recorded
+    // the same folder in another spelling land in the same group.
+    return registered
+      ? { ...summary, workspace: registered.path, workspaceName: registered.name }
+      : summary;
+  }
+
   listSessions(): SessionSummary[] {
     return this.sessions
       .list()
-      .map((record) =>
-        summarizeSession(
-          record.sessionId,
-          record.runIds.map((runId) => this.options.store.read(runId)),
-          record.title,
-        ),
-      )
+      .map((record) => this.summarize(record))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
@@ -253,9 +324,34 @@ export class RunManager implements RunStarter {
     return this.sessions.remove(sessionId) ? 'ok' : 'unknown';
   }
 
+  listArchived(): SessionSummary[] {
+    return this.sessions
+      .listRemoved()
+      .map((record) => this.summarize(record))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  restore(sessionId: string): 'ok' | 'unknown' {
+    return this.sessions.restore(sessionId) ? 'ok' : 'unknown';
+  }
+
+  purge(sessionId: string): 'ok' | 'unknown' {
+    const record = this.sessions.listRemoved().find((r) => r.sessionId === sessionId);
+    if (!record) return 'unknown';
+    // Events first: the database only allows deleting them while the conversation is still in the
+    // archive. If this is cut short the archived conversation stays, emptied, and can be purged again.
+    this.options.store.deleteRuns(record.runIds);
+    return this.sessions.purge(sessionId) ? 'ok' : 'unknown';
+  }
+
   async rollback(runId: string, callId: string): Promise<RollbackOutcome> {
-    const undo = this.options.rollback;
     const events = this.options.store.read(runId);
+    const started = events.find((e) => e.type === 'run.started');
+    // The undo is confined to the workspace the run worked in.
+    const undo =
+      started?.type === 'run.started'
+        ? this.workspaces.byPath(started.workspace)?.rollback
+        : undefined;
     const changed = events.find((e) => e.type === 'file.changed' && e.callId === callId);
     if (!undo || changed?.type !== 'file.changed') return { status: 'unknown' };
     if (events.some((e) => e.type === 'file.rolledback' && e.callId === callId)) {
@@ -312,8 +408,8 @@ export class RunManager implements RunStarter {
 
   info(): Omit<ServerInfo, 'modes'> {
     return {
-      workspace: this.options.workspace,
-      workspaceName: path.basename(this.options.workspace) || this.options.workspace,
+      workspace: this.workspaces.primary().path,
+      workspaceName: this.workspaces.primary().name,
       liveModel: this.options.live?.()?.name ?? null,
     };
   }

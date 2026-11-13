@@ -19,6 +19,12 @@ interface Props {
   approval: ApprovalMode;
   onApproval: (approval: ApprovalMode) => void;
   workspaceName: string;
+  /** Registered workspaces to choose from, for a new conversation. */
+  workspaces?: { id: string; name: string }[];
+  workspaceId?: string | null;
+  onWorkspaceChange?: (id: string) => void;
+  /** A conversation keeps the workspace it started in, so the choice is closed once it exists. */
+  workspaceLocked?: boolean;
   /** Name shown on the right: the live model, or the demo model. */
   modelLabel: string;
   /** The account balance next to the model name; null when there is nothing to show. */
@@ -69,13 +75,24 @@ export function Composer(props: Props) {
       />
 
       <div className="flex flex-wrap items-center gap-2 px-3 pb-3 text-xs">
-        <span
-          className="flex max-w-40 items-center gap-1 rounded-md bg-muted px-2 py-1 text-muted-foreground"
-          title={`工作区：${props.workspaceName}`}
-        >
-          <Folder aria-hidden className="size-3.5 shrink-0" />
-          <span className="truncate">{props.workspaceName}</span>
-        </span>
+        {!props.workspaceLocked && (props.workspaces?.length ?? 0) > 1 && props.workspaceId ? (
+          <MenuSelect<string>
+            label="工作区"
+            value={props.workspaceId}
+            disabled={props.running}
+            onChange={(id) => props.onWorkspaceChange?.(id)}
+            options={props.workspaces?.map((w) => ({ value: w.id, label: w.name })) ?? []}
+            className="max-w-40"
+          />
+        ) : (
+          <span
+            className="flex max-w-40 items-center gap-1 rounded-md bg-muted px-2 py-1 text-muted-foreground"
+            title={`工作区：${props.workspaceName}`}
+          >
+            <Folder aria-hidden className="size-3.5 shrink-0" />
+            <span className="truncate">{props.workspaceName}</span>
+          </span>
+        )}
 
         <div role="group" aria-label="运行模式" className="flex rounded-md bg-muted p-0.5">
           {MODES.map(({ value, label }) => {

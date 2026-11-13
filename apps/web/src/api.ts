@@ -10,8 +10,11 @@ import {
   SessionList,
   SessionRuns,
   ToolList,
+  WorkspaceAdded,
+  WorkspaceList,
   type AgentInput,
   type AgentProfile,
+  type WorkspaceInfo,
   type ModelInput,
   type ModelProfile,
   type ModelTestInput,
@@ -20,6 +23,9 @@ import {
 } from '@orbit/protocol';
 
 export type {
+  WorkspaceAdded,
+  WorkspaceInfo,
+  WorkspaceList,
   AgentList,
   AgentProfile,
   ModelBalance,
@@ -58,6 +64,23 @@ export const fetchInfo = (): Promise<ServerInfo> =>
 export const fetchSessions = async (): Promise<SessionSummary[]> =>
   (await getJson('/api/sessions', (data) => SessionList.parse(data))).sessions;
 
+/** Conversations the user moved out of the list. */
+export const fetchArchive = async (): Promise<SessionSummary[]> =>
+  (await getJson('/api/archive', (data) => SessionList.parse(data))).sessions;
+
+export async function restoreSession(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/archive/${encodeURIComponent(sessionId)}/restore`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw await failure(res);
+}
+
+/** Delete an archived conversation and everything in it for good. Cannot be undone. */
+export async function purgeSession(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/archive/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+  if (!res.ok) throw await failure(res);
+}
+
 export const fetchSessionRuns = async (sessionId: string): Promise<string[]> =>
   (
     await getJson(`/api/sessions/${encodeURIComponent(sessionId)}`, (data) =>
@@ -93,6 +116,7 @@ export async function startRun(
   sessionId?: string,
   modelId?: string,
   agentId?: string,
+  workspaceId?: string,
 ): Promise<StartedRun> {
   const res = await fetch('/api/runs', {
     method: 'POST',
@@ -104,6 +128,7 @@ export async function startRun(
       ...(sessionId ? { sessionId } : {}),
       ...(modelId ? { modelId } : {}),
       ...(agentId ? { agentId } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
     }),
   });
   if (!res.ok) throw await failure(res);
@@ -242,4 +267,26 @@ export async function removeAgent(id: string): Promise<AgentList> {
   const res = await sendJson('DELETE', `/api/agents/${encodeURIComponent(id)}`);
   if (!res.ok) throw await failure(res);
   return AgentList.parse(await res.json());
+}
+
+/** The folders the agent may work in. Only the server decides this list; the page can only choose. */
+export const fetchWorkspaces = (): Promise<WorkspaceList> =>
+  getJson('/api/workspaces', (data) => WorkspaceList.parse(data));
+
+/**
+ * Ask the server to open the operating system's folder dialog and register the folder the user
+ * chooses. The page sends only an optional name, never a path. Resolves when the dialog is closed;
+ * `added` is null if the user cancelled.
+ */
+export async function pickWorkspace(name?: string): Promise<WorkspaceAdded> {
+  const res = await sendJson('POST', '/api/workspaces/pick', name ? { name } : {});
+  if (!res.ok) throw await failure(res);
+  return WorkspaceAdded.parse(await res.json());
+}
+
+/** Forget a workspace. Its folder and conversations are untouched. */
+export async function removeWorkspace(id: string): Promise<WorkspaceList> {
+  const res = await sendJson('DELETE', `/api/workspaces/${encodeURIComponent(id)}`);
+  if (!res.ok) throw await failure(res);
+  return WorkspaceList.parse(await res.json());
 }
