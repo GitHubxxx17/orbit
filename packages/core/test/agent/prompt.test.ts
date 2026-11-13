@@ -19,4 +19,11 @@ describe('DEFAULT_SYSTEM_PROMPT', () => {
     expect(DEFAULT_SYSTEM_PROMPT).toContain('credentials');
     expect(DEFAULT_SYSTEM_PROMPT).toContain('outside the workspace');
   });
+
+  it('asks for a report whose claims cite the tool calls that prove them', () => {
+    expect(DEFAULT_SYSTEM_PROMPT).toContain('call report once');
+    expect(DEFAULT_SYSTEM_PROMPT).toContain('not finished until you call report');
+    expect(DEFAULT_SYSTEM_PROMPT).toContain('ids of the tool calls');
+    expect(DEFAULT_SYSTEM_PROMPT).toContain('never claim a result you did not see');
+  });
 });

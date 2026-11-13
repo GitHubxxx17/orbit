@@ -9,6 +9,7 @@ import { InMemoryEventStore } from '../../src/event-store.js';
 import { checkInvariants } from '../../src/invariants.js';
 import type { ChatRequest, LlmClient, LlmEvent } from '../../src/llm/types.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
+import { reportTool } from '../../src/tools/report.js';
 import { defineTool } from '../../src/tools/tool.js';
 
 /** A model that replays a fixed script: each call to `stream` consumes one turn. */
@@ -530,5 +531,59 @@ describe('runAgent: file changes', () => {
     await runAgent(options);
 
     expect(types(store)).not.toContain('file.changed');
+  });
+});
+
+describe('runAgent: report', () => {
+  const claims = [
+    { text: 'the echo returned ping', evidence: ['c1'] },
+    { text: 'all tests pass', evidence: [] },
+    { text: 'it also read the file', evidence: ['invented'] },
+  ];
+
+  it('answers the agent with which claims have evidence, so it can fix the report', async () => {
+    const { store, options } = setup([
+      [call('c1', 'echo', { text: 'ping' }), finish('tool_calls')],
+      [call('c2', 'report', { claims }), finish('tool_calls')],
+      [say('done'), finish()],
+    ]);
+    options.registry.register(reportTool());
+    await runAgent(options);
+
+    const result = store.read('r1').find((e) => e.type === 'tool.result' && e.callId === 'c2');
+    expect(result).toMatchObject({ ok: true });
+    const output = result?.type === 'tool.result' ? result.output : '';
+    expect(output).toContain('3 claims, 1 supported, 0 partly supported, 2 without evidence');
+    expect(output).toContain('invented: there is no such call in this run');
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+
+  it('does not accept the report call as its own evidence', async () => {
+    const { store, options } = setup([
+      [
+        call('c2', 'report', { claims: [{ text: 'self', evidence: ['c2'] }] }),
+        finish('tool_calls'),
+      ],
+      [say('done'), finish()],
+    ]);
+    options.registry.register(reportTool());
+    await runAgent(options);
+
+    const result = store.read('r1').find((e) => e.type === 'tool.result');
+    expect(result?.type === 'tool.result' ? result.output : '').toContain(
+      'c2: that call cannot be used as evidence',
+    );
+  });
+
+  it('refuses a report with no claims like any malformed call', async () => {
+    const { store, options } = setup([
+      [call('c2', 'report', { claims: [] }), finish('tool_calls')],
+      [say('done'), finish()],
+    ]);
+    options.registry.register(reportTool());
+    await runAgent(options);
+
+    const result = store.read('r1').find((e) => e.type === 'tool.result');
+    expect(result).toMatchObject({ ok: false });
   });
 });

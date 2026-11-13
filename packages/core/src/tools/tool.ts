@@ -1,4 +1,4 @@
-import type { RiskLevel } from '@orbit/protocol';
+import type { OrbitEvent, RiskLevel } from '@orbit/protocol';
 import type { z } from 'zod';
 
 export interface FileChange {
@@ -17,6 +17,10 @@ export interface ToolContext {
    * Absent when nobody records (for example in a tool's own unit tests).
    */
   recordChange?: (change: FileChange) => void;
+  /** The id of the tool call being run. */
+  callId?: string;
+  /** The events of the current run so far; for tools that reason about what happened (report). */
+  events?: () => OrbitEvent[];
 }
 
 /** A tool as the runtime sees it: arguments are `unknown` until the tool validates them itself. */

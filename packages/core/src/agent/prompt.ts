@@ -21,4 +21,11 @@ export const DEFAULT_SYSTEM_PROMPT = [
   '- The user reviews every change as a diff and may reject it. Do not work around a rejection;',
   '  report it and ask how to proceed.',
   '- Do not try to read or write credentials, .env files, or anything outside the workspace.',
+  '',
+  '## Reporting',
+  '- Your work is not finished until you call report. After your last tool call, call report once',
+  '  with your conclusions, and only then write your final answer.',
+  '- Each claim states one fact you verified and lists the ids of the tool calls that prove it.',
+  '- A claim you did not verify gets no evidence, and you say in your answer that it is unverified.',
+  '  Never cite a call that does not show the claim, and never claim a result you did not see.',
 ].join('\n');
