@@ -18,6 +18,21 @@ describe('ToolRegistry', () => {
     expect(() => registry.register(tool)).toThrow('tool already registered: add');
   });
 
+  it('picks a subset, ignoring unknown and repeated names, and never adds a tool', () => {
+    const other = defineTool({
+      name: 'other',
+      description: 'x',
+      risk: 'write',
+      schema: z.object({}),
+      execute: async () => '',
+    });
+    const registry = new ToolRegistry().register(tool).register(other);
+    const picked = registry.pick(['other', 'ghost', 'other']);
+    expect(picked.list().map((t) => t.name)).toEqual(['other']);
+    expect(picked.get('add')).toBeUndefined();
+    expect(registry.list()).toHaveLength(2);
+  });
+
   it('looks tools up by name', () => {
     const registry = new ToolRegistry().register(tool);
     expect(registry.get('add')).toBe(tool);

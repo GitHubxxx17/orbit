@@ -29,3 +29,6 @@ Event store and the agent runtime.
   caught by `RepeatTracker` (same call, same result, three times). Either way the model is asked
   once more, without tools, for an answer, and the run ends `failed` with `EARLY_STOP_PREFIX`. A
   user's Stop must still end the run at once, with no further model call.
+
+- `ToolRegistry.pick` only narrows: it returns a registry with a subset of the tools and ignores
+  names that are not registered. Agent profiles use it (ADR 0013); never add a way to widen.

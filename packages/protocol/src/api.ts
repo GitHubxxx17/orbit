@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { RiskLevel } from './events.js';
+
 /**
  * Shapes the HTTP API returns, shared by the server and the web app so neither guesses at the
  * other's output. The client parses every response with these before using it.
@@ -150,3 +152,47 @@ export const ModelBalance = z.object({
   checkedAt: z.number().int().nonnegative(),
 });
 export type ModelBalance = z.infer<typeof ModelBalance>;
+
+/**
+ * An agent profile: a name for a way of working. It picks a model, adds instructions to the
+ * built-in system prompt and may narrow the tools. It can only narrow: policy, sandbox and approval
+ * apply to every agent in the same way.
+ */
+export const AgentProfile = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  /** Extra instructions appended to the built-in system prompt; empty for none. */
+  instructions: z.string(),
+  /** A saved model to use, or null for whichever the user picks / the default. */
+  modelId: z.string().nullable(),
+  /** The tools this agent may call, or null for all of them. `report` is always available. */
+  tools: z.array(z.string()).nullable(),
+  /** The built-in agent can be chosen but not edited or removed. */
+  builtin: z.boolean(),
+});
+export type AgentProfile = z.infer<typeof AgentProfile>;
+
+export const AgentList = z.object({ agents: z.array(AgentProfile) });
+export type AgentList = z.infer<typeof AgentList>;
+
+/** What the settings page sends for one agent. */
+export const AgentInput = z.object({
+  name: z.string().trim().min(1).max(40),
+  description: z.string().trim().max(200).optional(),
+  instructions: z.string().trim().max(4000).optional(),
+  modelId: z.string().min(1).nullable().optional(),
+  tools: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
+});
+export type AgentInput = z.infer<typeof AgentInput>;
+
+/** One tool an agent may be given, as the agent editor lists it. */
+export const ToolInfo = z.object({
+  name: z.string().min(1),
+  risk: RiskLevel,
+  description: z.string(),
+});
+export type ToolInfo = z.infer<typeof ToolInfo>;
+
+export const ToolList = z.object({ tools: z.array(ToolInfo) });
+export type ToolList = z.infer<typeof ToolList>;

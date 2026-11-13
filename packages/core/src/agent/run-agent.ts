@@ -14,6 +14,8 @@ export interface RunAgentOptions {
   workspace: string;
   /** Name of the model behind `llm`, recorded in run.started; omit it for the demo model. */
   modelName?: string;
+  /** Name of the agent profile, recorded in run.started; omit it for the built-in agent. */
+  agentName?: string;
   llm: LlmClient;
   store: EventStore;
   registry: ToolRegistry;
@@ -85,6 +87,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
     agentId: options.agentId,
     workspace: options.workspace,
     ...(options.modelName ? { model: options.modelName } : {}),
+    ...(options.agentName ? { agentName: options.agentName } : {}),
   });
 
   // Record what was asked, so the conversation can be rebuilt from the log alone.
