@@ -76,6 +76,79 @@ describe('append-only', () => {
   });
 });
 
+describe('deleting an archived conversation for good (ADR 0015)', () => {
+  /** A conversation with two runs, and a second one that stays in use. */
+  function setup() {
+    const stores = openStores(file);
+    for (const [session, runs] of [
+      ['s1', ['r1', 'r2']],
+      ['s2', ['r3']],
+    ] as const) {
+      stores.sessions.create(session);
+      for (const run of runs) {
+        stores.sessions.addRun(session, run);
+        stores.events.append(run, started);
+      }
+    }
+    return stores;
+  }
+
+  it('deletes the events of an archived conversation and nothing else', () => {
+    const stores = setup();
+    stores.sessions.remove('s1');
+    stores.events.deleteRuns(['r1', 'r2']);
+    expect(stores.sessions.purge('s1')).toBe(true);
+
+    expect(stores.events.read('r1')).toEqual([]);
+    expect(stores.events.read('r2')).toEqual([]);
+    expect(stores.events.read('r3')).toHaveLength(1);
+    expect(stores.sessions.listRemoved()).toEqual([]);
+    expect(() => stores.sessions.create('s1')).toThrow(); // the id stays taken
+    stores.close();
+  });
+
+  it('refuses to delete events of a conversation that is in use, even through raw SQL', () => {
+    const stores = setup();
+    expect(() => stores.events.deleteRuns(['r3'])).toThrow(/append-only/);
+    expect(() => stores.db.prepare("DELETE FROM events WHERE run_id = 'r3'").run()).toThrow(
+      /append-only/,
+    );
+    // Archiving alone does not delete; restoring makes it protected again.
+    stores.sessions.remove('s2');
+    stores.sessions.restore('s2');
+    expect(() => stores.events.deleteRuns(['r3'])).toThrow(/append-only/);
+    expect(stores.events.read('r3')).toHaveLength(1);
+    stores.close();
+  });
+
+  it('still refuses to change an event, archived or not', () => {
+    const stores = setup();
+    stores.sessions.remove('s1');
+    expect(() => stores.db.prepare("UPDATE events SET data = '{}'").run()).toThrow(/append-only/);
+    stores.close();
+  });
+
+  it('upgrades a version 1 database, which could never delete, in place', () => {
+    const old = setup();
+    old.db.exec(`
+      DROP TRIGGER events_no_delete;
+      CREATE TRIGGER events_no_delete BEFORE DELETE ON events
+      BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+    `);
+    old.db.pragma('user_version = 1');
+    old.sessions.remove('s1');
+    expect(() => old.events.deleteRuns(['r1'])).toThrow(/append-only/);
+    old.close();
+
+    const upgraded = openStores(file);
+    expect(upgraded.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    expect(upgraded.events.read('r3')).toHaveLength(1); // nothing was lost
+    upgraded.events.deleteRuns(['r1', 'r2']);
+    expect(upgraded.events.read('r1')).toEqual([]);
+    upgraded.close();
+  });
+});
+
 describe('safety', () => {
   it('creates the data folder and file readable by the current user only', async () => {
     openStores(file).close();

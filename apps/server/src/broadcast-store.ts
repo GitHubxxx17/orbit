@@ -22,6 +22,11 @@ export class BroadcastingStore implements EventStore {
     return this.inner.read(runId, afterSeq);
   }
 
+  deleteRuns(runIds: readonly string[]): void {
+    this.inner.deleteRuns(runIds);
+    for (const runId of runIds) this.listeners.delete(runId);
+  }
+
   /** Returns a function that stops the subscription. */
   subscribe(runId: string, listener: EventListener): () => void {
     const set = this.listeners.get(runId) ?? new Set<EventListener>();

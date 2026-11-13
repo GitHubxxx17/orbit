@@ -23,15 +23,28 @@ export interface SessionStore {
   /** Set the title (null clears it). Returns false for an unknown or removed session. */
   rename(sessionId: string, title: string | null): boolean;
   /**
-   * Hide a session. Its events are never deleted (the log is append-only); the session just stops
-   * being listed or opened. Returns false for an unknown or already removed session.
+   * Archive a session: it stops being listed or opened, but nothing is deleted, and it can be
+   * brought back with `restore`. Returns false for an unknown or already archived session.
    */
   remove(sessionId: string): boolean;
+  /** Archived sessions, oldest first. */
+  listRemoved(): SessionRecord[];
+  /** Bring an archived session back. False if it is not archived (or was already deleted for good). */
+  restore(sessionId: string): boolean;
+  /**
+   * Forget an archived session for good: its runs and title are dropped, the id stays taken. The
+   * caller deletes the runs' events first (`EventStore.deleteRuns`, ADR 0015). False if the
+   * session is not archived.
+   */
+  purge(sessionId: string): boolean;
 }
 
 /** Sessions held in memory: lost on restart. Used in tests and as the no-database fallback. */
 export class InMemorySessionStore implements SessionStore {
-  private readonly sessions = new Map<string, SessionRecord & { removed: boolean }>();
+  private readonly sessions = new Map<
+    string,
+    SessionRecord & { removed: boolean; purged: boolean }
+  >();
   private readonly usedRunIds = new Set<string>();
 
   constructor(private readonly clock: Clock = { now: () => Date.now() }) {}
@@ -44,6 +57,7 @@ export class InMemorySessionStore implements SessionStore {
       title: null,
       runIds: [],
       removed: false,
+      purged: false,
     };
     this.sessions.set(sessionId, record);
     return this.copy(record);
@@ -80,6 +94,29 @@ export class InMemorySessionStore implements SessionStore {
     const record = this.live(sessionId);
     if (!record) return false;
     record.removed = true;
+    return true;
+  }
+
+  listRemoved(): SessionRecord[] {
+    return [...this.sessions.values()]
+      .filter((record) => record.removed && !record.purged)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((record) => this.copy(record));
+  }
+
+  restore(sessionId: string): boolean {
+    const record = this.sessions.get(sessionId);
+    if (!record || !record.removed || record.purged) return false;
+    record.removed = false;
+    return true;
+  }
+
+  purge(sessionId: string): boolean {
+    const record = this.sessions.get(sessionId);
+    if (!record || !record.removed || record.purged) return false;
+    record.runIds = [];
+    record.title = null;
+    record.purged = true;
     return true;
   }
 

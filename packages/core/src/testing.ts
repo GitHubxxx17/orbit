@@ -183,6 +183,40 @@ export function sessionStoreContract(name: string, create: SessionStoreFactory):
       expect(() => store.addRun('s1', 'r9')).toThrow();
     });
 
+    it('lists archived sessions and brings one back with its runs and title', () => {
+      const store = fresh();
+      store.create('s1');
+      store.addRun('s1', 'r1');
+      store.rename('s1', '标题');
+      store.create('s2');
+      store.remove('s1');
+
+      expect(store.listRemoved().map((s) => s.sessionId)).toEqual(['s1']);
+      expect(store.restore('s1')).toBe(true);
+      expect(store.get('s1')).toMatchObject({ title: '标题', runIds: ['r1'] });
+      expect(store.listRemoved()).toEqual([]);
+      expect(store.restore('s1')).toBe(false);
+      expect(store.restore('s2')).toBe(false);
+      expect(store.restore('nope')).toBe(false);
+    });
+
+    it('purges only an archived session, drops what it held and keeps the id taken', () => {
+      const store = fresh();
+      store.create('s1');
+      store.addRun('s1', 'r1');
+      store.rename('s1', '标题');
+
+      expect(store.purge('s1')).toBe(false); // not archived yet
+      store.remove('s1');
+      expect(store.purge('s1')).toBe(true);
+      expect(store.listRemoved()).toEqual([]);
+      expect(store.get('s1')).toBeUndefined();
+      expect(store.restore('s1')).toBe(false);
+      expect(store.purge('s1')).toBe(false);
+      expect(() => store.create('s1')).toThrow();
+      expect(() => store.addRun('s9', 'r1')).toThrow();
+    });
+
     it('keeps the record safe from changes to what it handed out', () => {
       const store = fresh();
       store.create('s1');

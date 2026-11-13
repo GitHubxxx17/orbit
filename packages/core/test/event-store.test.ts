@@ -42,3 +42,14 @@ describe('InMemoryEventStore', () => {
     expect(makeStore().read('missing')).toEqual([]);
   });
 });
+
+describe('InMemoryEventStore.deleteRuns', () => {
+  it('deletes whole runs and leaves the others alone', () => {
+    const store = new InMemoryEventStore();
+    store.append('r1', { type: 'run.started', agentId: 'a', workspace: '/w' });
+    store.append('r2', { type: 'run.started', agentId: 'a', workspace: '/w' });
+    store.deleteRuns(['r1', 'unknown']);
+    expect(store.read('r1')).toEqual([]);
+    expect(store.read('r2')).toHaveLength(1);
+  });
+});
