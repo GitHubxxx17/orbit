@@ -37,6 +37,7 @@ import { useSessions } from '@/hooks/use-sessions';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useTheme } from '@/hooks/use-theme';
 import { balanceChip } from '@/lib/balance';
+import { contextUse } from '@/lib/context-use';
 import { collectChanges, type Change } from '@/state/changes';
 import { emptyRun } from '@/state/timeline';
 
@@ -137,6 +138,9 @@ export function App() {
     modelId,
   );
   const chip = balanceChip(balance);
+  // How full the window is: the size of the newest request over the window the user entered for
+  // the selected model. Unknown when either is missing.
+  const windowUse = contextUse(view.usage?.lastPromptTokens, chosen?.contextWindow);
 
   // Choosing an agent that has its own model also selects that model; the user can still change it.
   const pickAgent = (id: string) => {
@@ -278,6 +282,7 @@ export function App() {
       workspaceLocked={sessionId !== null}
       modelLabel={modelLabel}
       balance={chip}
+      contextUse={mode === 'live' ? windowUse : null}
       models={models.list.models}
       modelId={modelId ?? null}
       onModelChange={setPickedModel}
@@ -419,6 +424,7 @@ export function App() {
                         <Conversation
                           session={shown}
                           liveModel={info?.liveModel ?? null}
+                          reportEnabled={info?.report ?? false}
                           onApprove={replaying ? null : approve}
                           onFork={replaying || !sessionId ? null : fork}
                         />

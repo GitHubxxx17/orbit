@@ -223,6 +223,37 @@ describe('a run with an agent profile', () => {
     expect(first(events).model).toBe('default-model');
   });
 
+  it('asks for a report only when the server has the report tool', async () => {
+    const withReport = stack();
+    await withReport.started(withReport.runs.start({ prompt: 'hi', mode: 'live' }));
+    expect(JSON.stringify(withReport.requests[0]!.messages)).toContain('call report once');
+    expect(withReport.runs.info().report).toBe(true);
+
+    const requests: ChatRequest[] = [];
+    const llm: LlmClient = {
+      async *stream(request) {
+        requests.push(request);
+        yield { type: 'text-delta', text: 'ok' };
+        yield { type: 'finish', reason: 'stop', usage: null };
+      },
+    };
+    const store = new BroadcastingStore(new InMemoryEventStore());
+    const runs = new RunManager({
+      store,
+      registry: new ToolRegistry().register(tool('read_file', 'read')),
+      workspace: '/w',
+      demoLlm: createDemoLlm(0),
+      live: () => ({ llm, name: 'm' }),
+    });
+    const run = runs.start({ prompt: 'hi', mode: 'live' });
+    for (let i = 0; i < 50 && !store.read(run.runId).some((e) => e.type === 'run.completed'); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(JSON.stringify(requests[0]!.messages)).not.toContain('call report');
+    expect(requests[0]!.tools?.map((t) => t.name)).toEqual(['read_file']);
+    expect(runs.info().report).toBe(false);
+  });
+
   it('refuses an unknown agent', () => {
     const { runs } = stack();
     expect(() => runs.start({ prompt: 'x', mode: 'live', agentId: 'ghost' })).toThrow(RunRejected);

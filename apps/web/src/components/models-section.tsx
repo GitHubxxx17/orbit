@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useBalance } from '@/hooks/use-balance';
 import { useModels } from '@/hooks/use-models';
+import { formatTokens } from '@/lib/format';
 import {
   BASE_URL_PRESETS,
   modelFormInput,
@@ -23,7 +24,7 @@ import {
 const field =
   'h-9 w-full rounded-lg border bg-background px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring';
 
-const EMPTY: ModelFormValues = { label: '', baseUrl: '', model: '', apiKey: '' };
+const EMPTY: ModelFormValues = { label: '', baseUrl: '', model: '', apiKey: '', contextWindow: '' };
 
 type Notice = { kind: 'ok' | 'error'; text: string } | null;
 
@@ -68,6 +69,7 @@ export function ModelsSection({ onChanged }: Props) {
         baseUrl: target.baseUrl,
         model: target.model,
         apiKey: '',
+        contextWindow: target.contextWindow === null ? '' : String(target.contextWindow),
       });
     }
   };
@@ -173,6 +175,7 @@ export function ModelsSection({ onChanged }: Props) {
               </div>
               <p className="mt-1 truncate text-xs text-muted-foreground">
                 {model.model} · {model.baseUrl} · Key …{model.apiKeyHint}
+                {model.contextWindow ? ` · 窗口 ${formatTokens(model.contextWindow)}` : ''}
               </p>
               {model.source === 'settings' ? (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -321,6 +324,25 @@ export function ModelsSection({ onChanged }: Props) {
                 autoComplete="off"
                 spellCheck={false}
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="context-window" className="text-sm font-medium">
+                上下文窗口（token，可选）
+              </label>
+              <input
+                id="context-window"
+                className={field}
+                value={values.contextWindow}
+                onChange={(e) => set('contextWindow')(e.target.value)}
+                placeholder="例如 128k、1m，以服务商文档为准"
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <p className="text-xs text-muted-foreground">
+                填了才会在输入框旁显示上下文用了多少，并按它的比例决定何时压缩旧的工具输出；不填就按固定的字符预算。
+              </p>
             </div>
 
             <div className="space-y-1.5">

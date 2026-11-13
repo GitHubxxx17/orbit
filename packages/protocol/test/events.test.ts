@@ -118,7 +118,13 @@ describe('API shapes', () => {
   });
 
   it('accepts server info with or without a live model', () => {
-    const info = { workspace: '/w', workspaceName: 'w', liveModel: null, modes: ['demo'] };
+    const info = {
+      workspace: '/w',
+      workspaceName: 'w',
+      liveModel: null,
+      report: false,
+      modes: ['demo'],
+    };
     expect(ServerInfo.safeParse(info).success).toBe(true);
     expect(ServerInfo.safeParse({ ...info, liveModel: 'm', modes: ['demo', 'live'] }).success).toBe(
       true,
@@ -131,6 +137,11 @@ describe('API shapes', () => {
     expect(ModelInput.safeParse(input).success).toBe(true);
     expect(ModelInput.safeParse({ ...input, apiKey: 'k' }).success).toBe(true);
     expect(ModelInput.safeParse({ ...input, apiKey: '  ' }).success).toBe(false);
+    // The context window is optional, can be cleared with null, and must be a sensible size.
+    expect(ModelInput.safeParse({ ...input, contextWindow: 128_000 }).success).toBe(true);
+    expect(ModelInput.safeParse({ ...input, contextWindow: null }).success).toBe(true);
+    expect(ModelInput.safeParse({ ...input, contextWindow: 10 }).success).toBe(false);
+    expect(ModelInput.safeParse({ ...input, contextWindow: 1.5 }).success).toBe(false);
     expect(ModelInput.safeParse({ ...input, model: '' }).success).toBe(false);
   });
 
@@ -141,6 +152,7 @@ describe('API shapes', () => {
       baseUrl: 'https://a.example',
       model: 'm',
       apiKeyHint: '1234',
+      contextWindow: null,
       source: 'settings',
     };
     const parsed = ModelList.parse({ models: [{ ...model, apiKey: 'secret' }], defaultId: 'm-1' });

@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import {
-  DEFAULT_SYSTEM_PROMPT,
+  buildSystemPrompt,
   historyFromRuns,
   InMemorySessionStore,
   projectRun,
@@ -131,7 +131,9 @@ export interface RunManagerOptions {
   workspaces?: WorkspaceSource;
   demoLlm: LlmClient;
   /** The model for live mode right now; asked on every call so saved settings apply at once. */
-  live?: (modelId?: string) => { llm: LlmClient; name: string } | undefined;
+  live?: (
+    modelId?: string,
+  ) => { llm: LlmClient; name: string; contextWindow?: number | null } | undefined;
   /** Where sessions are kept. Defaults to memory, which is lost on restart. */
   sessions?: SessionStore;
   /** Decides which tool calls run, wait for the user, or are refused. */
@@ -254,22 +256,26 @@ export class RunManager implements RunStarter {
 
     // Not awaited: the run reports through the event log. runAgent appends run.started
     // synchronously, so the log exists by the time this method returns.
+    // `report` stays for every agent when the server has it (ADR 0007); and the prompt asks for a
+    // report only when the run can make one.
+    const runRegistry = agent?.tools
+      ? workspace.registry.pick([...agent.tools, 'report'])
+      : workspace.registry;
+    const basePrompt = buildSystemPrompt({ report: runRegistry.get('report') !== undefined });
     void runAgent({
       runId,
       agentId:
         mode !== 'live' ? 'orbit-demo' : agent && !agent.builtin ? agent.id : 'orbit-default',
       ...(agent && !agent.builtin ? { agentName: agent.name } : {}),
       ...(live ? { modelName: live.name } : {}),
+      ...(live?.contextWindow ? { contextWindow: live.contextWindow } : {}),
       workspace: workspace.path,
       llm,
       store: this.options.store,
-      // `report` stays: the evidence check (ADR 0007) must work for every agent.
-      registry: agent?.tools
-        ? workspace.registry.pick([...agent.tools, 'report'])
-        : workspace.registry,
+      registry: runRegistry,
       systemPrompt: agent?.instructions
-        ? `${DEFAULT_SYSTEM_PROMPT}\n\nAdditional instructions from the user for this agent:\n${agent.instructions}`
-        : DEFAULT_SYSTEM_PROMPT,
+        ? `${basePrompt}\n\nAdditional instructions from the user for this agent:\n${agent.instructions}`
+        : basePrompt,
       prompt,
       history,
       // "readonly" refuses every write without asking; otherwise the configured policy decides.
@@ -411,6 +417,7 @@ export class RunManager implements RunStarter {
       workspace: this.workspaces.primary().path,
       workspaceName: this.workspaces.primary().name,
       liveModel: this.options.live?.()?.name ?? null,
+      report: this.workspaces.primary().registry.get('report') !== undefined,
     };
   }
 

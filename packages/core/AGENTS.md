@@ -23,7 +23,8 @@ Event store and the agent runtime.
 
 - The `report` tool (`src/tools/report.ts`) records the agent's claims; whether they have evidence is
   decided by `checkReport`, never by the model (ADR 0007). Keep the system prompt's reporting rules
-  in sync with `test/agent/prompt.test.ts`.
+  in sync with `test/agent/prompt.test.ts`. It is off by default in the server (ADR 0017): the
+  prompt has the reporting rules only when the run has the tool (`buildSystemPrompt`).
 
 - The loop has no small step limit (ADR 0010). `maxSteps` is a high safety ceiling; being stuck is
   caught by `RepeatTracker` (same call, same result, three times). Either way the model is asked
@@ -32,3 +33,11 @@ Event store and the agent runtime.
 
 - `ToolRegistry.pick` only narrows: it returns a registry with a subset of the tools and ignores
   names that are not registered. Agent profiles use it (ADR 0013); never add a way to widen.
+
+- A run sends what `ContextWindow` gives (ADR 0016), not a freshly trimmed copy on every step: the
+  history is masked in one go at a share of the window and left alone until it grows again, so each
+  request starts like the previous one and the provider's prompt cache applies. Do not add anything
+  that rewrites earlier messages on every call. Cache hits are read per provider in
+  `llm/cache-usage.ts`; a provider that does not say gives `null`, never 0. A tool marked
+  `idempotent` may be answered with a note when the same call is repeated; only mark tools that
+  merely read the workspace.

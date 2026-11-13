@@ -6,6 +6,7 @@ import { ToolRegistry, type Tool } from '@orbit/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createReadOnlyTools, Sandbox } from '../src/index.js';
+import { MAX_BATCH_CHARS, MAX_BATCH_FILES } from '../src/read-files.js';
 
 let base: string;
 let workspace: string;
@@ -112,6 +113,94 @@ describe('read_file', () => {
   });
 });
 
+describe('read_files', () => {
+  it('reads several files in one call, each under its own heading', async () => {
+    const out = await run('read_files', { files: [{ path: 'src/a.ts' }, { path: 'src/b.ts' }] });
+    expect(out).toBe(
+      '=== src/a.ts ===\n1\tconst alpha = 1;\n2\tconst Beta = 2;\n\n' +
+        '=== src/b.ts ===\n1\texport const gamma = alpha;',
+    );
+  });
+
+  it('pages each file on its own', async () => {
+    const out = await run('read_files', {
+      files: [{ path: 'long.txt', offset: 3, limit: 2 }, { path: 'README.md' }],
+    });
+    expect(out).toContain('=== long.txt ===\n3\tline 3\n4\tline 4\n[showing lines 3-4 of 10');
+    expect(out).toContain('=== README.md ===\n1\t# hello');
+  });
+
+  it('reports a file it cannot read in its place and still reads the others', async () => {
+    const out = await run('read_files', {
+      files: [
+        { path: '.env' },
+        { path: 'missing.txt' },
+        { path: 'image.bin' },
+        { path: 'README.md' },
+      ],
+    });
+    expect(out).toContain('=== .env ===\nError:');
+    expect(out).toContain('not allowed');
+    expect(out).toContain('=== missing.txt ===\nError:');
+    expect(out).toContain('=== image.bin ===\nError: binary');
+    expect(out).toContain('1\t# hello');
+    expect(out).not.toContain('super-secret');
+  });
+
+  it('refuses a path that leaves the workspace, as read_file does', async () => {
+    const out = await run('read_files', { files: [{ path: '../outside/secret.txt' }] });
+    expect(out).toContain('outside the workspace');
+    expect(out).not.toContain('outside secret');
+  });
+
+  it('stops at the output limit and lists what it did not show', async () => {
+    const fileCount = 12;
+    for (let i = 0; i < fileCount; i += 1) {
+      await writeFile(path.join(workspace, `big${i}.txt`), `${'x'.repeat(8_000)}\n`);
+    }
+    const files = Array.from({ length: fileCount }, (_, i) => ({ path: `big${i}.txt` }));
+    const out = await run('read_files', { files });
+    expect(out.length).toBeLessThan(MAX_BATCH_CHARS + 2_000);
+    expect(out).toContain('=== big0.txt ===');
+    expect(out).toMatch(/\[not shown, output limit reached: big\d+\.txt/);
+    expect(out).toContain('big11.txt');
+  });
+
+  it('wants between one and twenty files', async () => {
+    await expect(run('read_files', { files: [] })).rejects.toThrow();
+    const many = Array.from({ length: MAX_BATCH_FILES + 1 }, () => ({ path: 'README.md' }));
+    await expect(run('read_files', { files: many })).rejects.toThrow();
+  });
+});
+
+describe('list_dir depth', () => {
+  it('shows the tree below a directory in one call, indented, without noise', async () => {
+    const out = await run('list_dir', { depth: 2 });
+    expect(out).toContain('dir  src\n  file a.ts\n  file b.ts');
+    expect(out).not.toContain('node_modules');
+    expect(out).not.toContain('pkg');
+  });
+
+  it('stays one level by default, and does not go deeper than asked', async () => {
+    expect(await run('list_dir', {})).not.toContain('a.ts');
+    await mkdir(path.join(workspace, 'deep/one/two'), { recursive: true });
+    await writeFile(path.join(workspace, 'deep/one/two/z.txt'), 'z');
+    const out = await run('list_dir', { path: 'deep', depth: 2 });
+    expect(out).toBe('dir  one\n  dir  two');
+  });
+
+  it('does not follow a link out of the workspace', async () => {
+    const out = await run('list_dir', { depth: 3 });
+    expect(out).toContain('link escape');
+    expect(out).not.toContain('secret.txt');
+  });
+
+  it('refuses a depth outside 1 to 4', async () => {
+    await expect(run('list_dir', { depth: 0 })).rejects.toThrow();
+    await expect(run('list_dir', { depth: 5 })).rejects.toThrow();
+  });
+});
+
 describe('grep', () => {
   it('finds matches with path and line number, in a stable order', async () => {
     const out = await run('grep', { pattern: 'alpha' });
@@ -143,6 +232,11 @@ describe('tool specs', () => {
         .specs()
         .map((spec) => [spec.name, (spec.parameters as { required?: string[] }).required]),
     );
-    expect(required).toEqual({ list_dir: undefined, read_file: ['path'], grep: ['pattern'] });
+    expect(required).toEqual({
+      list_dir: undefined,
+      read_file: ['path'],
+      read_files: ['files'],
+      grep: ['pattern'],
+    });
   });
 });

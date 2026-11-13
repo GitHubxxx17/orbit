@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { cachedTokensOf } from './cache-usage.js';
 import type { LlmConfig } from './config.js';
 import { parseSse } from './sse.js';
 import {
@@ -37,7 +39,8 @@ const ChunkSchema = z.object({
       }),
     )
     .optional(),
-  usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number() }).nullish(),
+  // Loose: providers add their own fields (cache hits) next to the two we always need.
+  usage: z.looseObject({ prompt_tokens: z.number(), completion_tokens: z.number() }).nullish(),
 });
 
 export interface OpenAICompatibleOptions extends LlmConfig {
@@ -155,9 +158,11 @@ export function createOpenAICompatibleClient(options: OpenAICompatibleOptions): 
         if (!parsed.success) throw new LlmError('LLM stream chunk has an unexpected shape', null);
 
         if (parsed.data.usage) {
+          const cached = cachedTokensOf(parsed.data.usage);
           usage = {
             promptTokens: parsed.data.usage.prompt_tokens,
             completionTokens: parsed.data.usage.completion_tokens,
+            ...(cached === null ? {} : { cachedTokens: cached }),
           };
         }
 

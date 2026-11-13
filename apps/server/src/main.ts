@@ -67,7 +67,12 @@ try {
 const workspaces = await WorkspaceManager.create({
   primary: workspace,
   file: path.join(dataDir, 'workspaces.json'),
-  sharedTools: () => [reportTool(), ...(mcpManager?.tools() ?? [])],
+  // The evidence report (ADR 0007) is off by default (ADR 0017): it costs an extra round trip and
+  // rarely finds anything to cite once old tool outputs are masked. ORBIT_REPORT=1 turns it on.
+  sharedTools: () => [
+    ...(process.env['ORBIT_REPORT'] === '1' ? [reportTool()] : []),
+    ...(mcpManager?.tools() ?? []),
+  ],
   log: (message) => console.log(message),
 });
 const registry = workspaces.primary().registry;

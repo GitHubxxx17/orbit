@@ -32,6 +32,8 @@ export type FinishReason = 'stop' | 'tool_calls' | 'length' | 'content_filter' |
 export interface Usage {
   promptTokens: number;
   completionTokens: number;
+  /** Input tokens the provider served from its prompt cache; absent when it does not say. */
+  cachedTokens?: number;
 }
 
 export type LlmEvent =

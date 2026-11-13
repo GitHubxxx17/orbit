@@ -764,6 +764,24 @@ describe('runAgent: token usage', () => {
     expect(checkInvariants(store.read('r1'))).toEqual([]);
   });
 
+  it('records cache hits when the provider reports them, and leaves the field out when it does not', async () => {
+    const { store, options } = setup([
+      [
+        call('u1', 'echo', { text: 'x' }),
+        {
+          type: 'finish',
+          reason: 'tool_calls',
+          usage: { promptTokens: 100, completionTokens: 10, cachedTokens: 0 },
+        },
+      ],
+      [say('done'), usage(150, 20)],
+    ]);
+    await runAgent(options);
+    const events = store.read('r1').filter((e) => e.type === 'model.usage');
+    expect(events[0]).toMatchObject({ cachedTokens: 0 }); // reported, and zero
+    expect(events[1]).not.toHaveProperty('cachedTokens'); // not reported
+  });
+
   it('records nothing when the provider reports nothing, so unknown is not zero', async () => {
     const { store, options } = setup([[say('hi'), finish()]]);
     await runAgent(options);
@@ -790,5 +808,119 @@ describe('runAgent: token usage', () => {
     const counts = store.read('r1').filter((e) => e.type === 'model.usage');
     expect(counts).toHaveLength(4);
     expect(counts.at(-1)).toMatchObject({ promptTokens: 40, completionTokens: 5 });
+  });
+});
+
+describe('runAgent: repeated reads', () => {
+  const lookups: string[] = [];
+  const lookup = defineTool({
+    name: 'lookup',
+    description: 'A read-only lookup.',
+    risk: 'read',
+    idempotent: true,
+    schema: z.object({ what: z.string() }),
+    execute: async ({ what }) => {
+      lookups.push(what);
+      return `result of ${what}`;
+    },
+  });
+  const writer = defineTool({
+    name: 'writer',
+    description: 'Changes something.',
+    risk: 'write',
+    schema: z.object({}),
+    execute: async () => 'written',
+  });
+  const allowAll = () => 'allow' as const;
+
+  function run(turns: LlmEvent[][]) {
+    lookups.length = 0;
+    const { store, options } = setup(turns, { policy: allowAll });
+    options.registry.register(lookup).register(writer);
+    return { store, options };
+  }
+  const resultsOf = (store: ReturnType<typeof setup>['store']) =>
+    store.read('r1').flatMap((e) => (e.type === 'tool.result' ? [e.output] : []));
+
+  it('answers a repeated read-only call with a note, and does not run the tool again', async () => {
+    const { store, options } = run([
+      [call('a', 'lookup', { what: 'x' }), finish('tool_calls')],
+      [call('b', 'lookup', { what: 'x' }), finish('tool_calls')],
+      [say('done'), finish()],
+    ]);
+    await runAgent(options);
+
+    expect(lookups).toEqual(['x']);
+    const [first, second] = resultsOf(store);
+    expect(first).toBe('result of x');
+    expect(second).toContain('Same call as a');
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+
+  it('treats different arguments as different calls, and key order as the same', async () => {
+    const { options } = run([
+      [call('a', 'lookup', { what: 'x' }), finish('tool_calls')],
+      [call('b', 'lookup', { what: 'y' }), finish('tool_calls')],
+      [say('done'), finish()],
+    ]);
+    await runAgent(options);
+    expect(lookups).toEqual(['x', 'y']);
+  });
+
+  it('runs the call again after something that could write ran in between', async () => {
+    const { store, options } = run([
+      [call('a', 'lookup', { what: 'x' }), finish('tool_calls')],
+      [call('w', 'writer', {}), finish('tool_calls')],
+      [call('b', 'lookup', { what: 'x' }), finish('tool_calls')],
+      [say('done'), finish()],
+    ]);
+    await runAgent(options);
+
+    expect(lookups).toEqual(['x', 'x']);
+    expect(resultsOf(store)).toEqual(['result of x', 'written', 'result of x']);
+  });
+
+  it('never accepts a call into the loop count when the model is re-reading what was masked', async () => {
+    const big = defineTool({
+      name: 'bigread',
+      description: 'A read-only lookup with a large answer.',
+      risk: 'read',
+      idempotent: true,
+      schema: z.object({ what: z.string() }),
+      execute: async ({ what }) => `${what}: ${'x'.repeat(800)}`,
+    });
+    const { store, options } = setup(
+      [
+        [call('a1', 'bigread', { what: 'a' }), finish('tool_calls')],
+        [call('b1', 'bigread', { what: 'b' }), finish('tool_calls')],
+        [call('a2', 'bigread', { what: 'a' }), finish('tool_calls')],
+        [call('b2', 'bigread', { what: 'b' }), finish('tool_calls')],
+        [call('a3', 'bigread', { what: 'a' }), finish('tool_calls')],
+        [call('b3', 'bigread', { what: 'b' }), finish('tool_calls')],
+        [say('done'), finish()],
+      ],
+      { policy: allowAll, maxContextChars: 1500 },
+    );
+    options.registry.register(big);
+
+    // The same call three times with the same result would end the run as a loop, but each time
+    // the earlier result had been masked, so the model had no way to remember it.
+    expect(await runAgent(options)).toEqual({ status: 'completed' });
+    const outputs = store.read('r1').flatMap((e) => (e.type === 'tool.result' ? [e.output] : []));
+    expect(outputs).toHaveLength(6);
+    expect(outputs.some((o) => o.startsWith('Same call'))).toBe(false);
+  });
+
+  it('never skips a tool that is not marked read-only-and-repeatable', async () => {
+    const { options } = setup(
+      [
+        [call('a', 'echo', { text: 'x' }), finish('tool_calls')],
+        [call('b', 'echo', { text: 'x' }), finish('tool_calls')],
+        [say('done'), finish()],
+      ],
+      {},
+    );
+    const result = await runAgent(options);
+    expect(result).toEqual({ status: 'completed' });
   });
 });

@@ -35,6 +35,37 @@ describe('createOpenAICompatibleClient', () => {
     ]);
   });
 
+  it('reads cache hits from the field each provider uses, and says nothing when there is none', async () => {
+    const finishOf = async (usage: Record<string, unknown>) => {
+      const { llm } = client(
+        sseResponse([
+          event({ choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] }),
+          event({ choices: [], usage: { prompt_tokens: 100, completion_tokens: 2, ...usage } }),
+          done,
+        ]),
+      );
+      const events = await collect(llm.stream(request));
+      return events.at(-1);
+    };
+
+    // DeepSeek names the hits and the misses.
+    expect(
+      await finishOf({ prompt_cache_hit_tokens: 80, prompt_cache_miss_tokens: 20 }),
+    ).toMatchObject({
+      usage: { promptTokens: 100, completionTokens: 2, cachedTokens: 80 },
+    });
+    // OpenAI nests it.
+    expect(await finishOf({ prompt_tokens_details: { cached_tokens: 64 } })).toMatchObject({
+      usage: { cachedTokens: 64 },
+    });
+    // Zero hits is a real answer; no field at all is not.
+    expect(await finishOf({ prompt_cache_hit_tokens: 0 })).toMatchObject({
+      usage: { cachedTokens: 0 },
+    });
+    const unknown = await finishOf({});
+    expect(unknown && 'usage' in unknown && unknown.usage).not.toHaveProperty('cachedTokens');
+  });
+
   it('assembles a tool call from fragments and orders calls by index', async () => {
     const tool = (index: number, fn: Record<string, string>, id?: string) =>
       event({

@@ -3,6 +3,7 @@ import type { Tool } from '@orbit/core';
 import { grepTool } from './grep.js';
 import { listDirTool } from './list-dir.js';
 import { readFileTool } from './read-file.js';
+import { readFilesTool } from './read-files.js';
 import { Sandbox } from './sandbox.js';
 import { rollbackWrite, writeFileTool } from './write-file.js';
 
@@ -21,7 +22,7 @@ export async function createRollback(
 /** The read-only tool set, confined to one workspace directory. */
 export async function createReadOnlyTools(workspace: string): Promise<Tool[]> {
   const sandbox = await Sandbox.create(workspace);
-  return [listDirTool(sandbox), readFileTool(sandbox), grepTool(sandbox)];
+  return [listDirTool(sandbox), readFileTool(sandbox), readFilesTool(sandbox), grepTool(sandbox)];
 }
 
 /**
@@ -30,5 +31,11 @@ export async function createReadOnlyTools(workspace: string): Promise<Tool[]> {
  */
 export async function createTools(workspace: string): Promise<Tool[]> {
   const sandbox = await Sandbox.create(workspace);
-  return [listDirTool(sandbox), readFileTool(sandbox), grepTool(sandbox), writeFileTool(sandbox)];
+  return [
+    listDirTool(sandbox),
+    readFileTool(sandbox),
+    readFilesTool(sandbox),
+    grepTool(sandbox),
+    writeFileTool(sandbox),
+  ];
 }

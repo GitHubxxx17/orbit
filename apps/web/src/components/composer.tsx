@@ -4,6 +4,7 @@ import { useRef, type KeyboardEvent } from 'react';
 import type { ApprovalMode, RunMode } from '@/api';
 import { MenuSelect } from '@/components/menu-select';
 import type { BalanceChip } from '@/lib/balance';
+import type { ContextUse } from '@/lib/context-use';
 
 interface Props {
   value: string;
@@ -29,6 +30,8 @@ interface Props {
   modelLabel: string;
   /** The account balance next to the model name; null when there is nothing to show. */
   balance?: BalanceChip | null;
+  /** How full the context window is; null when the window or the usage is not known. */
+  contextUse?: ContextUse | null;
   /** Saved models to choose from; the picker shows only when there is more than one. */
   models?: { id: string; label: string }[];
   modelId?: string | null;
@@ -137,6 +140,20 @@ export function Composer(props: Props) {
         )}
 
         <span className="ml-auto flex min-w-0 items-center gap-2 text-muted-foreground">
+          {props.contextUse && (
+            <span
+              title={props.contextUse.detail}
+              className={
+                props.contextUse.tone === 'full'
+                  ? 'text-red-600 dark:text-red-400'
+                  : props.contextUse.tone === 'high'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : undefined
+              }
+            >
+              上下文 {props.contextUse.percent}%
+            </span>
+          )}
           {props.balance && (
             <span
               title={props.balance.detail}

@@ -48,6 +48,20 @@ export interface TokenUsage {
   completionTokens: number;
   /** How many model calls reported usage. */
   calls: number;
+  /** Input tokens the provider served from its cache, and how many calls said so. */
+  cachedTokens: number;
+  cachedCalls: number;
+  /** The input size of the newest call: about how full the context window is now. */
+  lastPromptTokens: number;
+}
+
+/**
+ * The share of input tokens that came from the provider's cache, 0 to 100, or null when it is not
+ * known: some call did not say, or there was no input. Unknown is not 0.
+ */
+export function cacheShare(usage: TokenUsage): number | null {
+  if (usage.cachedCalls < usage.calls || usage.promptTokens === 0) return null;
+  return Math.round((usage.cachedTokens / usage.promptTokens) * 100);
 }
 
 export interface RunView {
@@ -223,13 +237,23 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
     }
     case 'model.usage': {
       // Several model calls make up one turn: add them up. No usage event at all stays null.
-      const total = view.usage ?? { promptTokens: 0, completionTokens: 0, calls: 0 };
+      const total = view.usage ?? {
+        promptTokens: 0,
+        completionTokens: 0,
+        calls: 0,
+        cachedTokens: 0,
+        cachedCalls: 0,
+        lastPromptTokens: 0,
+      };
       return {
         ...next,
         usage: {
           promptTokens: total.promptTokens + event.promptTokens,
           completionTokens: total.completionTokens + event.completionTokens,
           calls: total.calls + 1,
+          cachedTokens: total.cachedTokens + (event.cachedTokens ?? 0),
+          cachedCalls: total.cachedCalls + (event.cachedTokens === undefined ? 0 : 1),
+          lastPromptTokens: event.promptTokens,
         },
       };
     }

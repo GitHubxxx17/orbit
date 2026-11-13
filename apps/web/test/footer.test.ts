@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { formatTokens } from '@/lib/format';
 import { turnFooter } from '@/state/footer';
-import { applyEvents, emptyRun, type RunView } from '@/state/timeline';
+import { applyEvents, cacheShare, emptyRun, type RunView } from '@/state/timeline';
 
 let seq = 0;
 const ev = (draft: Record<string, unknown>, ts = 1000) =>
@@ -13,7 +13,7 @@ const ev = (draft: Record<string, unknown>, ts = 1000) =>
 function run(options: {
   agent?: string;
   agentName?: string;
-  usage?: [number, number][];
+  usage?: ([number, number] | [number, number, number])[];
   end?: 'ok' | 'early' | 'error';
 }) {
   seq = 0;
@@ -29,8 +29,13 @@ function run(options: {
       1000,
     ),
     ev({ type: 'user.message', text: 'q' }),
-    ...(options.usage ?? []).map(([promptTokens, completionTokens]) =>
-      ev({ type: 'model.usage', promptTokens, completionTokens }),
+    ...(options.usage ?? []).map(([promptTokens, completionTokens, cachedTokens]) =>
+      ev({
+        type: 'model.usage',
+        promptTokens,
+        completionTokens,
+        ...(cachedTokens === undefined ? {} : { cachedTokens }),
+      }),
     ),
     end === 'ok'
       ? ev({ type: 'run.completed' }, 28_000)
@@ -70,7 +75,50 @@ describe('usage in a turn view', () => {
         [150, 20],
       ],
     });
-    expect(view.usage).toEqual({ promptTokens: 250, completionTokens: 30, calls: 2 });
+    expect(view.usage).toMatchObject({ promptTokens: 250, completionTokens: 30, calls: 2 });
+  });
+
+  it('remembers the size of the newest request, which is how full the window is now', () => {
+    const view = run({
+      usage: [
+        [100, 10],
+        [180, 20],
+        [260, 5],
+      ],
+    });
+    expect(view.usage?.lastPromptTokens).toBe(260);
+  });
+
+  it('adds up cache hits, but only calls them known when every call said so', () => {
+    const known = run({
+      usage: [
+        [100, 10, 0],
+        [200, 20, 150],
+      ],
+    });
+    expect(known.usage).toMatchObject({ cachedTokens: 150, cachedCalls: 2 });
+    expect(cacheShare(known.usage!)).toBe(50);
+
+    const partial = run({
+      usage: [
+        [100, 10, 80],
+        [200, 20],
+      ],
+    });
+    expect(cacheShare(partial.usage!)).toBeNull(); // one call did not say: unknown, not a guess
+
+    const none = run({ usage: [[100, 10]] });
+    expect(cacheShare(none.usage!)).toBeNull();
+  });
+
+  it('keeps a real 0% hit rate apart from an unknown one', () => {
+    const zero = run({ usage: [[100, 10, 0]] });
+    expect(cacheShare(zero.usage!)).toBe(0);
+  });
+
+  it('shows the cache hit rate in the line under the turn only when it is known', () => {
+    expect(turnFooter(run({ usage: [[1000, 50, 800]] }), 'm')).toContain('缓存命中 80%');
+    expect(turnFooter(run({ usage: [[1000, 50]] }), 'm')).not.toContain('缓存');
   });
 
   it('stays null when nothing was reported, which is not the same as zero', () => {

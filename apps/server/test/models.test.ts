@@ -70,6 +70,7 @@ describe('ModelManager', () => {
           baseUrl: 'https://api.example.com/v1',
           model: 'm1',
           apiKeyHint: '1234',
+          contextWindow: null,
           source: 'settings',
         },
       ],
@@ -77,6 +78,20 @@ describe('ModelManager', () => {
     });
     expect(JSON.stringify(list)).not.toContain(KEY);
     expect(m.current()?.name).toBe('m1');
+  });
+
+  it('remembers the context window, keeps it when an update leaves it out, and clears it with null', () => {
+    const m = manager();
+    m.save(undefined, { ...input, contextWindow: 128_000 });
+    expect(m.list().models[0]?.contextWindow).toBe(128_000);
+    expect(m.current()?.contextWindow).toBe(128_000);
+
+    m.save('m-1', { baseUrl: input.baseUrl, model: 'm1' });
+    expect(m.list().models[0]?.contextWindow).toBe(128_000);
+
+    m.save('m-1', { baseUrl: input.baseUrl, model: 'm1', contextWindow: null });
+    expect(m.list().models[0]?.contextWindow).toBeNull();
+    expect(manager().list().models[0]?.contextWindow).toBeNull();
   });
 
   it('keeps several models and picks one by id, the default when none is named', () => {

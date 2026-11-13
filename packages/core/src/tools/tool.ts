@@ -36,6 +36,12 @@ export interface Tool {
    * object; the tool's owner validates the rest.
    */
   jsonSchema?: Record<string, unknown>;
+  /**
+   * True when the same arguments give the same result for as long as nothing is written: a tool
+   * that only reads the workspace. A repeat of such a call, while its earlier result is still in
+   * the conversation, is answered with a short note instead of running again.
+   */
+  idempotent?: boolean;
   /** Validates `rawArgs` against `schema`, then runs. Throws on invalid arguments or failure. */
   run(rawArgs: unknown, context: ToolContext): Promise<string>;
   /**
@@ -50,6 +56,8 @@ export interface ToolDefinition<S extends z.ZodType> {
   description: string;
   risk: RiskLevel;
   schema: S;
+  /** See `Tool.idempotent`. */
+  idempotent?: boolean;
   execute(args: z.infer<S>, context: ToolContext): Promise<string>;
   preview?(args: z.infer<S>, context: ToolContext): Promise<string>;
 }
@@ -62,6 +70,7 @@ export function defineTool<S extends z.ZodType>(definition: ToolDefinition<S>): 
     description: definition.description,
     risk: definition.risk,
     schema: definition.schema,
+    ...(definition.idempotent ? { idempotent: true } : {}),
     // async so that invalid arguments surface as a rejected promise, never a synchronous throw.
     run: async (rawArgs, context) => definition.execute(definition.schema.parse(rawArgs), context),
     ...(preview

@@ -1,7 +1,7 @@
 import { EARLY_STOP_PREFIX } from '@orbit/protocol';
 
 import { duration, formatTokens } from '@/lib/format';
-import type { RunView } from '@/state/timeline';
+import { cacheShare, type RunView } from '@/state/timeline';
 
 /** The model's name for the line under an answer: the one the run used, else the current default. */
 export function modelLabel(view: RunView, liveModel: string | null): string {
@@ -27,6 +27,8 @@ export function turnFooter(view: RunView, liveModel: string | null): string | nu
     parts.push(
       `输入 ${formatTokens(view.usage.promptTokens)} · 输出 ${formatTokens(view.usage.completionTokens)} token`,
     );
+    const share = cacheShare(view.usage);
+    if (share !== null) parts.push(`缓存命中 ${share}%`);
     if (view.usage.calls > 1) parts.push(`${view.usage.calls} 次模型调用`);
   } else if (view.agentId !== 'orbit-demo') {
     parts.push('用量未知');
