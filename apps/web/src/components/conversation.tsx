@@ -108,7 +108,7 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: T
           ) : (
             <p
               role="alert"
-              className="my-3 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+              className="my-3 rounded-md bg-destructive/10 p-3 text-sm whitespace-pre-line text-destructive"
             >
               {notice.text}
             </p>

@@ -19,6 +19,14 @@ describe('describeFailure', () => {
     expect(describeFailure(`${EARLY_STOP_PREFIX}something-new`)).toMatchObject({ kind: 'early' });
   });
 
+  it('adds a plain hint after a rate-limit error and keeps the provider’s own text', () => {
+    const reason = 'model error: LLM request failed with status 429: {"error":{"code":"1305"}}';
+    const notice = describeFailure(reason);
+    expect(notice.kind).toBe('error');
+    expect(notice.text).toContain(reason);
+    expect(notice.text).toContain('稍后重试');
+  });
+
   it('keeps every other failure an error and shows its reason', () => {
     expect(describeFailure('model error: fetch failed')).toEqual({
       kind: 'error',
