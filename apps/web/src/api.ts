@@ -2,13 +2,15 @@ import {
   ForkResult,
   McpStatus,
   ModelBalance,
-  ModelStatus,
+  ModelList,
   ModelTestResult,
   OrbitEvent,
   ServerInfo,
   SessionList,
   SessionRuns,
   type ModelInput,
+  type ModelProfile,
+  type ModelTestInput,
   type RunMode,
   type SessionSummary,
 } from '@orbit/protocol';
@@ -16,7 +18,8 @@ import {
 export type {
   ModelBalance,
   ModelInput,
-  ModelStatus,
+  ModelList,
+  ModelProfile,
   ModelTestResult,
   RunMode,
   ServerInfo,
@@ -82,11 +85,18 @@ export async function startRun(
   mode: RunMode,
   approval: ApprovalMode,
   sessionId?: string,
+  modelId?: string,
 ): Promise<StartedRun> {
   const res = await fetch('/api/runs', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt, mode, approval, ...(sessionId ? { sessionId } : {}) }),
+    body: JSON.stringify({
+      prompt,
+      mode,
+      approval,
+      ...(sessionId ? { sessionId } : {}),
+      ...(modelId ? { modelId } : {}),
+    }),
   });
   if (!res.ok) throw await failure(res);
   return (await res.json()) as StartedRun;
@@ -139,23 +149,33 @@ const sendJson = (method: string, url: string, body?: unknown) =>
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
-export const fetchModel = (): Promise<ModelStatus> =>
-  getJson('/api/settings/model', (data) => ModelStatus.parse(data));
+export const fetchModels = (): Promise<ModelList> =>
+  getJson('/api/settings/models', (data) => ModelList.parse(data));
 
-export async function saveModel(input: ModelInput): Promise<ModelStatus> {
-  const res = await sendJson('PUT', '/api/settings/model', input);
+/** Add a model (no `id`) or change one. Resolves with the whole list as the server now has it. */
+export async function saveModel(id: string | null, input: ModelInput): Promise<ModelList> {
+  const res =
+    id === null
+      ? await sendJson('POST', '/api/settings/models', input)
+      : await sendJson('PUT', `/api/settings/models/${encodeURIComponent(id)}`, input);
   if (!res.ok) throw await failure(res);
-  return ModelStatus.parse(await res.json());
+  return ModelList.parse(await res.json());
 }
 
-export async function clearModel(): Promise<ModelStatus> {
-  const res = await sendJson('DELETE', '/api/settings/model');
+export async function removeModel(id: string): Promise<ModelList> {
+  const res = await sendJson('DELETE', `/api/settings/models/${encodeURIComponent(id)}`);
   if (!res.ok) throw await failure(res);
-  return ModelStatus.parse(await res.json());
+  return ModelList.parse(await res.json());
 }
 
-export async function testModel(input: ModelInput): Promise<ModelTestResult> {
-  const res = await sendJson('POST', '/api/settings/model/test', input);
+export async function setDefaultModel(id: string): Promise<ModelList> {
+  const res = await sendJson('PUT', '/api/settings/default-model', { id });
+  if (!res.ok) throw await failure(res);
+  return ModelList.parse(await res.json());
+}
+
+export async function testModel(input: ModelTestInput): Promise<ModelTestResult> {
+  const res = await sendJson('POST', '/api/settings/models/test', input);
   if (!res.ok) throw await failure(res);
   return ModelTestResult.parse(await res.json());
 }
@@ -179,8 +199,16 @@ export async function forkSession(sessionId: string, upToRun: number): Promise<s
   return ForkResult.parse(await res.json()).sessionId;
 }
 
-/** The provider's account balance. `force` asks the provider again instead of reusing a recent answer. */
-export const fetchBalance = (force = false): Promise<ModelBalance> =>
-  getJson(`/api/settings/model/balance${force ? '?refresh=1' : ''}`, (data) =>
+/**
+ * The provider's account balance for one model (the default if `modelId` is omitted). `force` asks
+ * the provider again instead of reusing a recent answer.
+ */
+export const fetchBalance = (modelId?: string, force = false): Promise<ModelBalance> => {
+  const query = new URLSearchParams();
+  if (modelId) query.set('model', modelId);
+  if (force) query.set('refresh', '1');
+  const text = query.toString();
+  return getJson(`/api/settings/balance${text ? `?${text}` : ''}`, (data) =>
     ModelBalance.parse(data),
   );
+};

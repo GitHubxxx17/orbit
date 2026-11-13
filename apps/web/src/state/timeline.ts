@@ -56,6 +56,8 @@ export interface RunView {
   prompt: string | null;
   /** Which agent ran it, from run.started; tells demo runs from live ones. */
   agentId: string | null;
+  /** The model a live run used, from run.started; null for the demo model and older logs. */
+  model: string | null;
   /** Event timestamps (epoch ms), used to show how long a run took. */
   startedAt: number | null;
   endedAt: number | null;
@@ -73,6 +75,7 @@ export const emptyRun: RunView = {
   runId: null,
   prompt: null,
   agentId: null,
+  model: null,
   startedAt: null,
   endedAt: null,
   status: 'idle',
@@ -145,7 +148,13 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
 
   switch (event.type) {
     case 'run.started':
-      return { ...next, status: 'running', agentId: event.agentId, startedAt: event.ts };
+      return {
+        ...next,
+        status: 'running',
+        agentId: event.agentId,
+        model: event.model ?? null,
+        startedAt: event.ts,
+      };
     case 'user.message':
       return { ...next, prompt: event.text };
     case 'message.delta':

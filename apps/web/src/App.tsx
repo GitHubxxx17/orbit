@@ -21,7 +21,9 @@ import { Sidebar } from '@/components/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useAppearance } from '@/hooks/use-appearance';
 import { useBalance } from '@/hooks/use-balance';
+import { useModels } from '@/hooks/use-models';
 import { useReplay } from '@/hooks/use-replay';
 import { useRun } from '@/hooks/use-run';
 import { useSessions } from '@/hooks/use-sessions';
@@ -51,6 +53,10 @@ export function App() {
     openSession,
   } = useRun();
   const { theme, cycle: cycleTheme } = useTheme();
+  const { appearance, setAppearance } = useAppearance();
+  const models = useModels();
+  // The model the user picked for new runs; until they pick, the default one is used.
+  const [pickedModel, setPickedModel] = useState<string | null>(null);
 
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [infoFailed, setInfoFailed] = useState(false);
@@ -89,12 +95,17 @@ export function App() {
   const hasConversation = session.turns.length > 0;
   const canSend = text.trim() !== '' && !running && info !== null;
   const workspaceName = info?.workspaceName ?? '工作区';
-  const modelLabel = mode === 'live' ? (info?.liveModel ?? '真实模型') : '演示模型';
+  const modelId =
+    models.list.models.find((m) => m.id === pickedModel)?.id ?? models.list.defaultId ?? undefined;
+  const chosen = models.list.models.find((m) => m.id === modelId);
+  const modelLabel =
+    mode === 'live' ? (chosen?.model ?? info?.liveModel ?? '真实模型') : '演示模型';
   const title = session.turns[0]?.prompt ?? '新会话';
   // The balance of the account behind the real model; the demo model costs nothing.
   const { balance } = useBalance(
-    `${session.turns.length}:${view.status}:${info?.liveModel ?? ''}`,
+    `${session.turns.length}:${view.status}:${modelId ?? ''}`,
     mode === 'live' && info?.liveModel != null,
+    modelId,
   );
   const chip = balanceChip(balance);
 
@@ -149,7 +160,7 @@ export function App() {
     const prompt = text.trim();
     setText('');
     // If it could not be sent, give the text back so it is not lost.
-    void start(prompt, mode, approval).then((sent) => {
+    void start(prompt, mode, approval, mode === 'live' ? modelId : undefined).then((sent) => {
       if (!sent) setText(prompt);
     });
   };
@@ -170,12 +181,25 @@ export function App() {
       workspaceName={workspaceName}
       modelLabel={modelLabel}
       balance={chip}
+      models={models.list.models}
+      modelId={modelId ?? null}
+      onModelChange={setPickedModel}
       placeholder={hasConversation ? '继续追问…（Enter 发送，Shift+Enter 换行）' : '随心输入'}
     />
   );
 
   if (settingsOpen) {
-    return <SettingsView onBack={() => setSettingsOpen(false)} onChanged={() => void loadInfo()} />;
+    return (
+      <SettingsView
+        onBack={() => setSettingsOpen(false)}
+        onChanged={() => {
+          void loadInfo();
+          void models.reload();
+        }}
+        appearance={appearance}
+        onAppearance={setAppearance}
+      />
+    );
   }
 
   return (
@@ -271,7 +295,7 @@ export function App() {
                     onFork={replaying || !sessionId ? null : fork}
                   />
                 </div>
-                <div className="mx-auto w-full max-w-3xl p-3">
+                <div className="mx-auto w-full max-w-(--content-max) p-3">
                   {(error ?? replay.error) && (
                     <p role="alert" className="mb-2 text-sm text-destructive">
                       {error ?? replay.error}

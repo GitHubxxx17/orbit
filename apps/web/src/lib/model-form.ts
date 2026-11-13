@@ -5,6 +5,8 @@ export const BASE_URL_PRESETS = [
 ] as const;
 
 export interface ModelFormValues {
+  /** A name for the picker; empty means the model name is used. */
+  label: string;
   baseUrl: string;
   model: string;
   apiKey: string;
@@ -24,7 +26,9 @@ export function modelFormProblem(values: ModelFormValues, hasKey: boolean): stri
 /** The request body: an empty key field is left out so the server keeps the stored one. */
 export function modelFormInput(values: ModelFormValues) {
   const apiKey = values.apiKey.trim();
+  const label = values.label.trim();
   return {
+    ...(label === '' ? {} : { label }),
     baseUrl: values.baseUrl.trim(),
     model: values.model.trim(),
     ...(apiKey === '' ? {} : { apiKey }),

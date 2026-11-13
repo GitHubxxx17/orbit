@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { modelFormInput, modelFormProblem } from '@/lib/model-form';
 
-const values = { baseUrl: ' https://a.example ', model: ' m ', apiKey: '' };
+const values = { label: '', baseUrl: ' https://a.example ', model: ' m ', apiKey: '' };
 
 describe('modelFormProblem', () => {
   it('asks for every field', () => {
@@ -24,5 +24,8 @@ describe('modelFormInput', () => {
       model: 'm',
       apiKey: 'k',
     });
+  });
+  it('sends a label only when one was typed', () => {
+    expect(modelFormInput({ ...values, label: ' 工作用 ' })).toMatchObject({ label: '工作用' });
   });
 });
