@@ -19,3 +19,7 @@ Local HTTP server (Hono).
 - Conversations are kept in SQLite under the data folder (`~/.orbit` or `ORBIT_DATA_DIR`); the
   folder holds file contents the agent read, so it is created readable by the current user only.
   On start-up `recoverInterruptedRuns` closes runs left going by the last shutdown.
+
+- Rollback (`POST /runs/:id/changes/:callId/rollback`) and fork (`POST /sessions/:id/fork`) follow
+  ADR 0006: rollback only when no run is going and the file still equals what the agent wrote; fork
+  copies events at a run boundary and never copies file changes.

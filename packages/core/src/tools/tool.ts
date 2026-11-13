@@ -1,9 +1,22 @@
 import type { RiskLevel } from '@orbit/protocol';
 import type { z } from 'zod';
 
+export interface FileChange {
+  /** Workspace-relative path, forward slashes. */
+  path: string;
+  /** The text before the write; null when the file did not exist. */
+  before: string | null;
+  after: string;
+}
+
 export interface ToolContext {
   /** Aborted when the run is cancelled; long-running tools should honor it. */
   signal: AbortSignal;
+  /**
+   * A tool that really changed a file reports it here, so the change is recorded and can be undone.
+   * Absent when nobody records (for example in a tool's own unit tests).
+   */
+  recordChange?: (change: FileChange) => void;
 }
 
 /** A tool as the runtime sees it: arguments are `unknown` until the tool validates them itself. */

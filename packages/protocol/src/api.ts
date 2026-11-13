@@ -71,3 +71,7 @@ export const ModelTestResult = z.object({
   latencyMs: z.number().int().nonnegative().nullable(),
 });
 export type ModelTestResult = z.infer<typeof ModelTestResult>;
+
+/** What forking a conversation returns: the id of the new conversation. */
+export const ForkResult = z.object({ sessionId: z.string().min(1) });
+export type ForkResult = z.infer<typeof ForkResult>;

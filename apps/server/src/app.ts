@@ -32,6 +32,7 @@ const Answers = z.object({
 });
 
 const Rename = z.object({ title: z.string().trim().min(1).max(80) });
+const ForkBody = z.object({ upToRun: z.number().int().min(1) });
 
 const isTerminal = (event: OrbitEvent) =>
   event.type === 'run.completed' || event.type === 'run.failed';
@@ -85,6 +86,38 @@ export function createApp({ store, runs, approvals, models }: AppDeps) {
     if (outcome === 'unknown') return c.json({ error: 'unknown session' }, 404);
     if (outcome === 'busy') return c.json({ error: 'stop the run in this session first' }, 409);
     return c.json({ ok: true });
+  });
+
+  // Start a new conversation from the first `upToRun` runs of this one; the original is untouched.
+  app.post('/sessions/:sessionId/fork', async (c) => {
+    const notJson = requireJson(c.req.header('content-type'));
+    if (notJson) return c.json(notJson.body, notJson.status);
+    const body = ForkBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+    const outcome = runs.fork(c.req.param('sessionId'), body.data.upToRun);
+    if (outcome.status === 'unknown') return c.json({ error: 'unknown session' }, 404);
+    if (outcome.status === 'range') return c.json({ error: 'upToRun is out of range' }, 400);
+    if (outcome.status === 'busy') return c.json({ error: 'wait for the run to finish' }, 409);
+    return c.json({ sessionId: outcome.sessionId }, 201);
+  });
+
+  // Undo one file write recorded in a run. Needs JSON like the other state-changing posts.
+  app.post('/runs/:runId/changes/:callId/rollback', async (c) => {
+    const notJson = requireJson(c.req.header('content-type'));
+    if (notJson) return c.json(notJson.body, notJson.status);
+    const outcome = await runs.rollback(c.req.param('runId'), c.req.param('callId'));
+    switch (outcome.status) {
+      case 'ok':
+        return c.json({ ok: true });
+      case 'unknown':
+        return c.json({ error: 'no such change' }, 404);
+      case 'already':
+        return c.json({ error: 'this change was already undone' }, 409);
+      case 'busy':
+        return c.json({ error: 'wait until no run is going, then try again' }, 409);
+      case 'conflict':
+        return c.json({ error: outcome.message }, 409);
+    }
   });
 
   if (models) {

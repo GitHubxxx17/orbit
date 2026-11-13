@@ -259,7 +259,11 @@ async function handleToolCalls(options: RunAgentOptions, calls: ToolCall[]): Pro
     let output: string;
     try {
       if (!item.parsed.valid) throw new Error('arguments must be a JSON object');
-      output = await item.tool.run(item.parsed.args, { signal });
+      output = await item.tool.run(item.parsed.args, {
+        signal,
+        recordChange: (change) =>
+          store.append(runId, { type: 'file.changed', callId: item.call.id, ...change }),
+      });
     } catch (error) {
       ok = false;
       output = `Error: ${error instanceof Error ? error.message : String(error)}`;

@@ -53,6 +53,26 @@ describe('OrbitEvent', () => {
   });
 });
 
+describe('file change events', () => {
+  const changed = { ...base, type: 'file.changed', callId: 'c1', path: 'a.txt', after: 'new' };
+
+  it('accepts a change to an existing file and to a new one (before is null)', () => {
+    expect(OrbitEvent.safeParse({ ...changed, before: 'old' }).success).toBe(true);
+    expect(OrbitEvent.safeParse({ ...changed, before: null }).success).toBe(true);
+  });
+
+  it('rejects a change that leaves out before, or has no path', () => {
+    expect(OrbitEvent.safeParse(changed).success).toBe(false);
+    expect(OrbitEvent.safeParse({ ...changed, before: null, path: '' }).success).toBe(false);
+  });
+
+  it('accepts a rollback and rejects one without a call id', () => {
+    const rolledback = { ...base, type: 'file.rolledback', callId: 'c1', path: 'a.txt' };
+    expect(OrbitEvent.safeParse(rolledback).success).toBe(true);
+    expect(OrbitEvent.safeParse({ ...rolledback, callId: '' }).success).toBe(false);
+  });
+});
+
 describe('API shapes', () => {
   it('accepts a session summary and rejects an unknown status', () => {
     const summary = {

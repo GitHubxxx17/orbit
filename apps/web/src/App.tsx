@@ -1,10 +1,12 @@
-import { Orbit, PanelLeft, PanelRight } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Orbit, PanelLeft, PanelRight, Rewind } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   deleteSession,
   fetchInfo,
+  forkSession,
   renameSession,
+  rollbackChange,
   type ApprovalMode,
   type RunMode,
   type ServerInfo,
@@ -12,16 +14,19 @@ import {
 import { Composer } from '@/components/composer';
 import { Conversation } from '@/components/conversation';
 import { EmptyState } from '@/components/empty-state';
+import { ReplayBar } from '@/components/replay-bar';
 import { RightPanel } from '@/components/right-panel';
 import { SettingsView } from '@/components/settings-view';
 import { Sidebar } from '@/components/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useReplay } from '@/hooks/use-replay';
 import { useRun } from '@/hooks/use-run';
 import { useSessions } from '@/hooks/use-sessions';
 import { useTheme } from '@/hooks/use-theme';
-import { collectChanges } from '@/state/changes';
+import { collectChanges, type Change } from '@/state/changes';
+import { emptyRun } from '@/state/timeline';
 
 const STATUS_LABEL = {
   idle: '空闲',
@@ -68,6 +73,16 @@ export function App() {
 
   const changes = useMemo(() => collectChanges(session.turns), [session.turns]);
 
+  // While replaying, the screen shows the replayed conversation and nothing can be changed.
+  const replay = useReplay();
+  const replaying = replay.active;
+  const shown = replaying ? replay.view : session;
+  const shownLast = shown.turns.at(-1) ?? emptyRun;
+  const shownChanges = useMemo(
+    () => (replaying ? collectChanges(replay.view.turns) : changes),
+    [replaying, replay.view.turns, changes],
+  );
+
   const running = view.status === 'running';
   const hasConversation = session.turns.length > 0;
   const canSend = text.trim() !== '' && !running && info !== null;
@@ -95,6 +110,31 @@ export function App() {
       (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
     );
   };
+
+  const rollback = useCallback(
+    async (change: Change) => {
+      if (!change.runId || !sessionId) throw new Error('找不到这次修改所属的运行');
+      await rollbackChange(change.runId, change.callId);
+      // The log now holds the rollback; reload it so the panel and timeline show it.
+      await openSession(sessionId);
+    },
+    [sessionId, openSession],
+  );
+
+  const fork = useCallback(
+    (turn: number) => {
+      if (!sessionId) return;
+      setActionError(null);
+      forkSession(sessionId, turn).then(
+        async (id) => {
+          refreshSessions();
+          await openSession(id);
+        },
+        (e: unknown) => setActionError(e instanceof Error ? e.message : String(e)),
+      );
+    },
+    [sessionId, openSession, refreshSessions],
+  );
 
   const send = () => {
     if (!canSend) return;
@@ -138,8 +178,14 @@ export function App() {
             sessions={sessions}
             failed={sessionsFailed}
             activeId={sessionId}
-            onSelect={(id) => void openSession(id)}
-            onNew={newSession}
+            onSelect={(id) => {
+              replay.exit();
+              void openSession(id);
+            }}
+            onNew={() => {
+              replay.exit();
+              newSession();
+            }}
             onRename={rename}
             onDelete={remove}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -168,10 +214,17 @@ export function App() {
             {title}
           </h1>
 
-          {hasConversation && (
+          {hasConversation && !replaying && (
             <Badge variant={running ? 'default' : 'secondary'}>{STATUS_LABEL[view.status]}</Badge>
           )}
+          {replaying && <Badge variant="secondary">回放中</Badge>}
           {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
+          {sessionId && !running && !replaying && hasConversation && (
+            <Button variant="ghost" size="sm" onClick={() => void replay.enter(sessionId)}>
+              <Rewind aria-hidden className="size-3.5" />
+              回放
+            </Button>
+          )}
           <ThemeToggle theme={theme} onCycle={cycleTheme} />
           <Button
             variant="ghost"
@@ -199,22 +252,35 @@ export function App() {
 
         <div className="flex min-h-0 flex-1">
           <main className="flex min-w-0 flex-1 flex-col" aria-label="对话">
-            {hasConversation ? (
+            {hasConversation || replaying ? (
               <>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <Conversation
-                    session={session}
+                    session={shown}
                     liveModel={info?.liveModel ?? null}
-                    onApprove={approve}
+                    onApprove={replaying ? null : approve}
+                    onFork={replaying || !sessionId ? null : fork}
                   />
                 </div>
                 <div className="mx-auto w-full max-w-3xl p-3">
-                  {error && (
+                  {(error ?? replay.error) && (
                     <p role="alert" className="mb-2 text-sm text-destructive">
-                      {error}
+                      {error ?? replay.error}
                     </p>
                   )}
-                  {composer}
+                  {replaying ? (
+                    <ReplayBar
+                      step={replay.step}
+                      total={replay.total}
+                      current={replay.current}
+                      playing={replay.playing}
+                      onGoTo={replay.goTo}
+                      onToggle={replay.toggle}
+                      onExit={replay.exit}
+                    />
+                  ) : (
+                    composer
+                  )}
                 </div>
               </>
             ) : (
@@ -234,7 +300,12 @@ export function App() {
 
           {panelOpen && (
             <div className="hidden lg:block">
-              <RightPanel rows={view.rows} lastSeq={view.lastSeq} changes={changes} />
+              <RightPanel
+                rows={shownLast.rows}
+                lastSeq={shownLast.lastSeq}
+                changes={shownChanges}
+                onRollback={replaying ? null : rollback}
+              />
             </div>
           )}
         </div>

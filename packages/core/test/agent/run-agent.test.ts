@@ -486,3 +486,49 @@ describe('runAgent: conversation', () => {
     expect(llm.requests[0]?.messages.map((m) => m.content)).toEqual(['be brief', 'hi']);
   });
 });
+
+describe('runAgent: file changes', () => {
+  const touch = defineTool({
+    name: 'touch',
+    description: 'Pretend to write a file.',
+    risk: 'write',
+    schema: z.object({ path: z.string() }),
+    execute: async ({ path }, context) => {
+      context.recordChange?.({ path, before: null, after: 'x' });
+      return 'ok';
+    },
+  });
+
+  it('records a file.changed event for a change the tool reports, before its result', async () => {
+    const { store, options } = setup(
+      [
+        [call('c1', 'touch', { path: 'a.txt' }), finish('tool_calls')],
+        [say('done'), finish()],
+      ],
+      { policy: () => 'allow' },
+    );
+    options.registry.register(touch);
+    await runAgent(options);
+
+    const events = store.read('r1');
+    const changed = events.find((e) => e.type === 'file.changed');
+    expect(changed).toMatchObject({ callId: 'c1', path: 'a.txt', before: null, after: 'x' });
+    const order = events.map((e) => e.type);
+    expect(order.indexOf('file.changed')).toBeLessThan(order.indexOf('tool.result'));
+    expect(checkInvariants(events)).toEqual([]);
+  });
+
+  it('records nothing for a call that was refused', async () => {
+    const { store, options } = setup(
+      [
+        [call('c1', 'touch', { path: 'a.txt' }), finish('tool_calls')],
+        [say('done'), finish()],
+      ],
+      { policy: () => 'deny' },
+    );
+    options.registry.register(touch);
+    await runAgent(options);
+
+    expect(types(store)).not.toContain('file.changed');
+  });
+});

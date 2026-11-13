@@ -1,4 +1,5 @@
 import {
+  ForkResult,
   ModelStatus,
   ModelTestResult,
   OrbitEvent,
@@ -142,4 +143,23 @@ export async function testModel(input: ModelInput): Promise<ModelTestResult> {
   const res = await sendJson('POST', '/api/settings/model/test', input);
   if (!res.ok) throw await failure(res);
   return ModelTestResult.parse(await res.json());
+}
+
+/** Undo one file write recorded in a run. Rejects with the server's reason (for example a conflict). */
+export async function rollbackChange(runId: string, callId: string): Promise<void> {
+  const res = await sendJson(
+    'POST',
+    `/api/runs/${encodeURIComponent(runId)}/changes/${encodeURIComponent(callId)}/rollback`,
+    {},
+  );
+  if (!res.ok) throw await failure(res);
+}
+
+/** Start a new conversation from the first `upToRun` runs of an existing one; returns its id. */
+export async function forkSession(sessionId: string, upToRun: number): Promise<string> {
+  const res = await sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/fork`, {
+    upToRun,
+  });
+  if (!res.ok) throw await failure(res);
+  return ForkResult.parse(await res.json()).sessionId;
 }

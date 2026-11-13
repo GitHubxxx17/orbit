@@ -25,6 +25,37 @@ const done = { type: 'run.completed' };
 
 const codes = (events: OrbitEvent[]) => checkInvariants(events).map((v) => v.code);
 
+describe('file change invariants', () => {
+  const changed = { type: 'file.changed', callId: 'c1', path: 'a.txt', before: null, after: 'x' };
+  const rolledback = { type: 'file.rolledback', callId: 'c1', path: 'a.txt' };
+
+  it('accepts a change, and a rollback after the run ended', () => {
+    expect(codes(log(start, req, allow, changed, result, done, rolledback))).toEqual([]);
+  });
+
+  it('flags a change the user never allowed', () => {
+    expect(codes(log(start, req, changed))).toContain('change-without-allow');
+  });
+
+  it('flags a rollback of a call that changed nothing', () => {
+    expect(codes(log(start, req, allow, result, done, rolledback))).toContain(
+      'rollback-without-change',
+    );
+  });
+
+  it('flags rolling the same change back twice', () => {
+    expect(codes(log(start, req, allow, changed, result, done, rolledback, rolledback))).toContain(
+      'duplicate-rollback',
+    );
+  });
+
+  it('still flags other events after the terminal event', () => {
+    expect(codes(log(start, done, rolledback, { type: 'message.delta', text: 'x' }))).toContain(
+      'event-after-terminal',
+    );
+  });
+});
+
 describe('checkInvariants', () => {
   it('accepts a consistent log', () => {
     expect(codes(log(start, req, allow, result, done))).toEqual([]);

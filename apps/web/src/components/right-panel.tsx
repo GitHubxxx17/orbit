@@ -11,10 +11,12 @@ interface Props {
   rows: TimelineRow[];
   lastSeq: number;
   changes: Change[];
+  /** Undo a change; null while replaying, when nothing may be changed. */
+  onRollback: ((change: Change) => Promise<void>) | null;
 }
 
 /** The side panel: the event timeline of the latest run, and the conversation's file changes. */
-export function RightPanel({ rows, lastSeq, changes }: Props) {
+export function RightPanel({ rows, lastSeq, changes, onRollback }: Props) {
   const [tab, setTab] = useState<Tab>('timeline');
   const awaiting = changes.filter((c) => c.status === 'awaiting').length;
 
@@ -59,7 +61,11 @@ export function RightPanel({ rows, lastSeq, changes }: Props) {
         aria-labelledby={`tab-${tab}`}
         className="min-h-0 flex-1 overflow-y-auto"
       >
-        {tab === 'timeline' ? <Timeline rows={rows} /> : <ChangesPanel changes={changes} />}
+        {tab === 'timeline' ? (
+          <Timeline rows={rows} />
+        ) : (
+          <ChangesPanel changes={changes} onRollback={onRollback} />
+        )}
       </div>
     </aside>
   );

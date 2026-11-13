@@ -60,3 +60,29 @@ describe('collectChanges', () => {
     expect(collectChanges([turn(card({ args: {} }))])[0]?.path).toBe('(未知路径)');
   });
 });
+
+describe('collectChanges: rollback', () => {
+  const inRun = (...cards: ToolCard[]): RunView => ({ ...turn(...cards), runId: 'r1' });
+
+  it('offers rollback only for a write that really happened', () => {
+    const [applied, noRecord] = collectChanges([
+      inRun(
+        card({ callId: 'a', status: 'done', changed: true }),
+        card({ callId: 'b', status: 'done' }),
+      ),
+    ]);
+    expect(applied).toMatchObject({ canRollback: true, runId: 'r1', callId: 'a' });
+    expect(noRecord?.canRollback).toBe(false);
+  });
+
+  it('shows an undone change as rolled back and no longer offers rollback', () => {
+    const [change] = collectChanges([
+      inRun(card({ status: 'done', changed: true, rolledBack: true })),
+    ]);
+    expect(change).toMatchObject({ status: 'rolledback', canRollback: false });
+  });
+
+  it('never offers rollback for a rejected write', () => {
+    expect(collectChanges([inRun(card({ status: 'denied' }))])[0]?.canRollback).toBe(false);
+  });
+});

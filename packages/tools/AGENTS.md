@@ -10,3 +10,7 @@ Built-in tools the agent can call. This is where filesystem access lives (not in
 - Tool output is untrusted data for the model, and is capped in size (`clip`).
 - Tests use a real temporary directory, never the repository itself.
 - Depends on `@orbit/core`, `zod` and `diff` (unified diffs for previews); must not import apps.
+
+- A tool that changes a file must report it with `context.recordChange({path, before, after})` so
+  the change is logged and can be rolled back (ADR 0006). `rollbackWrite` refuses when the file no
+  longer equals `after`.
