@@ -1,6 +1,7 @@
 import {
   ForkResult,
   McpStatus,
+  ModelBalance,
   ModelStatus,
   ModelTestResult,
   OrbitEvent,
@@ -12,7 +13,15 @@ import {
   type SessionSummary,
 } from '@orbit/protocol';
 
-export type { ModelInput, ModelStatus, ModelTestResult, RunMode, ServerInfo, SessionSummary };
+export type {
+  ModelBalance,
+  ModelInput,
+  ModelStatus,
+  ModelTestResult,
+  RunMode,
+  ServerInfo,
+  SessionSummary,
+};
 export type { McpStatus };
 
 /** The configured MCP servers. Read-only: the config file is edited by hand. */
@@ -169,3 +178,9 @@ export async function forkSession(sessionId: string, upToRun: number): Promise<s
   if (!res.ok) throw await failure(res);
   return ForkResult.parse(await res.json()).sessionId;
 }
+
+/** The provider's account balance. `force` asks the provider again instead of reusing a recent answer. */
+export const fetchBalance = (force = false): Promise<ModelBalance> =>
+  getJson(`/api/settings/model/balance${force ? '?refresh=1' : ''}`, (data) =>
+    ModelBalance.parse(data),
+  );
