@@ -1,5 +1,6 @@
 import {
   ForkResult,
+  McpStatus,
   ModelStatus,
   ModelTestResult,
   OrbitEvent,
@@ -12,6 +13,11 @@ import {
 } from '@orbit/protocol';
 
 export type { ModelInput, ModelStatus, ModelTestResult, RunMode, ServerInfo, SessionSummary };
+export type { McpStatus };
+
+/** The configured MCP servers. Read-only: the config file is edited by hand. */
+export const fetchMcp = (): Promise<McpStatus> =>
+  getJson('/api/mcp', (data) => McpStatus.parse(data));
 
 /** Who decides on writes: ask the user each turn, or refuse them outright. */
 export type ApprovalMode = 'ask' | 'readonly';

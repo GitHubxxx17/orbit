@@ -32,4 +32,14 @@ describe('describeTool', () => {
     const label = describeTool('grep', { pattern: 'x'.repeat(100) });
     expect(label).toBe(`搜索“${'x'.repeat(40)}…”`);
   });
+
+  it('names an MCP tool by its server and tool', () => {
+    expect(describeTool('mcp__fs__read_file', {})).toBe('MCP fs · read_file');
+    expect(describeTool('mcp__my-server__a__b', {})).toBe('MCP my-server · a__b');
+  });
+
+  it('falls back to the tool name for anything else', () => {
+    expect(describeTool('other', {})).toBe('调用 other');
+    expect(describeTool('mcp__x', {})).toBe('调用 mcp__x');
+  });
 });

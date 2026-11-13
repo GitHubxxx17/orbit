@@ -39,7 +39,10 @@ export function describeTool(tool: string, args: Record<string, unknown>): strin
     }
     case 'report':
       return '提交报告';
-    default:
-      return `调用 ${tool}`;
+    default: {
+      // MCP tools are named mcp__<server>__<tool>.
+      const mcp = /^mcp__([a-z0-9_-]+?)__(.+)$/.exec(tool);
+      return mcp ? `MCP ${mcp[1]} · ${mcp[2]}` : `调用 ${tool}`;
+    }
   }
 }
