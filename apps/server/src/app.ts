@@ -1,4 +1,4 @@
-import { ModelInput, type OrbitEvent } from '@orbit/protocol';
+import { ModelInput, type McpStatus, type OrbitEvent } from '@orbit/protocol';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -15,6 +15,8 @@ export interface AppDeps {
   approvals: ApprovalResolver;
   /** Model settings; absent in tests that do not exercise them. */
   models?: Pick<ModelManager, 'status' | 'save' | 'clear' | 'test'>;
+  /** The configured MCP servers, read-only. Absent in tests that do not exercise them. */
+  mcp?: { status(): McpStatus };
 }
 
 const StartBody = z.object({
@@ -44,7 +46,7 @@ function requireJson(contentType: string | undefined) {
     : { body: { error: 'content-type must be application/json' }, status: 415 as const };
 }
 
-export function createApp({ store, runs, approvals, models }: AppDeps) {
+export function createApp({ store, runs, approvals, models, mcp }: AppDeps) {
   const app = new Hono();
 
   // A web page in the user's browser must not be able to drive this local server through DNS
@@ -119,6 +121,12 @@ export function createApp({ store, runs, approvals, models }: AppDeps) {
         return c.json({ error: outcome.message }, 409);
     }
   });
+
+  if (mcp) {
+    // Read-only on purpose: a stdio MCP server is a program that starts on this machine, so the
+    // list can only be changed by editing mcp.json by hand (ADR 0008). There is no write route.
+    app.get('/mcp', (c) => c.json(mcp.status()));
+  }
 
   if (models) {
     // The key is write-only: no response here ever contains it.

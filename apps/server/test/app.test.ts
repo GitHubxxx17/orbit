@@ -748,3 +748,48 @@ describe('sessions that survive a restart', () => {
     release();
   });
 });
+
+describe('MCP status', () => {
+  const status = {
+    servers: [
+      {
+        id: 'fx',
+        transport: 'stdio' as const,
+        state: 'connected' as const,
+        error: null,
+        tools: [{ name: 'mcp__fx__echo', risk: 'write' as const, description: '[MCP fx] echo' }],
+        skipped: [],
+      },
+    ],
+    configError: null,
+  };
+
+  function appWith(mcp?: { status(): typeof status }) {
+    const store = new BroadcastingStore(new InMemoryEventStore());
+    const runs = new RunManager({
+      store,
+      registry: new ToolRegistry(),
+      workspace: '/w',
+      demoLlm: createDemoLlm(0),
+    });
+    return createApp({ store, runs, approvals: new ApprovalBroker(), ...(mcp ? { mcp } : {}) });
+  }
+
+  it('reports the configured servers and what they offer', async () => {
+    const res = await call(appWith({ status: () => status }), '/mcp');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(status);
+  });
+
+  it('has no way to change the servers over HTTP', async () => {
+    const app = appWith({ status: () => status });
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const res = await call(app, '/mcp', { method, headers: json, body: '{}' });
+      expect(res.status, method).toBe(404);
+    }
+  });
+
+  it('is absent when MCP is not wired in', async () => {
+    expect((await call(appWith(), '/mcp')).status).toBe(404);
+  });
+});

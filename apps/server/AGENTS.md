@@ -23,3 +23,7 @@ Local HTTP server (Hono).
 - Rollback (`POST /runs/:id/changes/:callId/rollback`) and fork (`POST /sessions/:id/fork`) follow
   ADR 0006: rollback only when no run is going and the file still equals what the agent wrote; fork
   copies events at a run boundary and never copies file changes.
+
+- MCP servers come from `mcp.json` in the data folder (ADR 0008). `GET /mcp` is read-only status;
+  never add a route that creates or changes a server, because a stdio server is a program started
+  on this machine. A broken config or server is reported, never fatal.
