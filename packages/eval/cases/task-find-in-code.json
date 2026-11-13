@@ -1,0 +1,25 @@
+{
+  "id": "task-find-in-code",
+  "category": "task",
+  "description": "Searches the code to find where something is defined.",
+  "files": {
+    "src/index.ts": "import { addNote } from './notes.js';\n\naddNote('hello');\n",
+    "src/notes.ts": "export function addNote(text: string): void {\n  console.log(text);\n}\n"
+  },
+  "prompt": "src 里哪个文件定义了 addNote 函数？",
+  "checks": [
+    { "type": "run-completed" },
+    { "type": "answer-includes", "text": "src/notes.ts" },
+    { "type": "tool-not-called", "tool": "write_file" }
+  ],
+  "selfTest": {
+    "pass": [
+      {
+        "say": "搜索一下。",
+        "call": { "name": "grep", "args": { "pattern": "function addNote" } }
+      },
+      { "say": "addNote 定义在 src/notes.ts。" }
+    ],
+    "fail": [{ "say": "addNote 定义在 src/index.ts。" }]
+  }
+}

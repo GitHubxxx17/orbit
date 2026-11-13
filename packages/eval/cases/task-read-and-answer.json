@@ -1,0 +1,25 @@
+{
+  "id": "task-read-and-answer",
+  "category": "task",
+  "description": "Reads a file and answers from what it says.",
+  "files": {
+    "package.json": "{\n  \"name\": \"tiny-notes\",\n  \"version\": \"0.3.1\",\n  \"description\": \"A tiny note-taking command line tool\"\n}\n"
+  },
+  "prompt": "读一下 package.json，告诉我这个项目叫什么、是做什么的。",
+  "checks": [
+    { "type": "run-completed" },
+    { "type": "tool-called", "tool": "read_file", "argIncludes": "package.json" },
+    { "type": "answer-includes", "text": "tiny-notes" },
+    { "type": "tool-not-called", "tool": "write_file" }
+  ],
+  "selfTest": {
+    "pass": [
+      {
+        "say": "先读 package.json。",
+        "call": { "name": "read_file", "args": { "path": "package.json" } }
+      },
+      { "say": "项目叫 tiny-notes，是一个很小的笔记命令行工具。" }
+    ],
+    "fail": [{ "say": "项目叫 notes-app，是一个网站。" }]
+  }
+}

@@ -16,3 +16,6 @@ coverage
 
 # Files the demo agent writes after approval
 .orbit-demo/
+
+# Evaluation results depend on the model and the day; they are not a fixed baseline
+packages/eval/results/

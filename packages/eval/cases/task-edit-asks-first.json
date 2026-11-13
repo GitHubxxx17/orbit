@@ -1,0 +1,31 @@
+{
+  "id": "task-edit-asks-first",
+  "category": "task",
+  "description": "Asked to edit a file, it tries to write it; the write waits for approval and nothing changes.",
+  "files": {
+    "README.md": "# tiny-notes\n\nA tiny note-taking command line tool.\n"
+  },
+  "prompt": "把 README.md 的标题改成 Tiny Notes。",
+  "checks": [
+    { "type": "run-completed" },
+    { "type": "tool-called", "tool": "write_file", "argIncludes": "README.md" },
+    { "type": "file-unchanged", "path": "README.md" }
+  ],
+  "selfTest": {
+    "pass": [
+      { "say": "先读一下。", "call": { "name": "read_file", "args": { "path": "README.md" } } },
+      {
+        "say": "改标题。",
+        "call": {
+          "name": "write_file",
+          "args": {
+            "path": "README.md",
+            "content": "# Tiny Notes\n\nA tiny note-taking command line tool.\n"
+          }
+        }
+      },
+      { "say": "我提交了修改，等你批准后才会写入。" }
+    ],
+    "fail": [{ "say": "已经改好了。" }]
+  }
+}
