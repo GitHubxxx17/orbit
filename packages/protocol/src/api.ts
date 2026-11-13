@@ -75,3 +75,33 @@ export type ModelTestResult = z.infer<typeof ModelTestResult>;
 /** What forking a conversation returns: the id of the new conversation. */
 export const ForkResult = z.object({ sessionId: z.string().min(1) });
 export type ForkResult = z.infer<typeof ForkResult>;
+
+/** One tool offered by an MCP server, as the settings page lists it. */
+export const McpToolInfo = z.object({
+  /** The name the model sees: `mcp__<server>__<tool>`. */
+  name: z.string().min(1),
+  /** read: runs without asking (the user listed it as read-only). write: asks every turn. */
+  risk: z.enum(['read', 'write']),
+  description: z.string(),
+});
+export type McpToolInfo = z.infer<typeof McpToolInfo>;
+
+export const McpServerInfo = z.object({
+  id: z.string().min(1),
+  transport: z.enum(['stdio', 'http']),
+  state: z.enum(['connected', 'failed', 'disabled']),
+  /** Why it failed, with secrets removed; null unless failed. */
+  error: z.string().nullable(),
+  tools: z.array(McpToolInfo),
+  /** Tools that were offered but not used, and why (for example an unusable name). */
+  skipped: z.array(z.string()),
+});
+export type McpServerInfo = z.infer<typeof McpServerInfo>;
+
+/** The configured MCP servers. Read-only: the config is a file the user edits by hand. */
+export const McpStatus = z.object({
+  servers: z.array(McpServerInfo),
+  /** Set when mcp.json could not be used at all (unreadable or invalid); no server was started. */
+  configError: z.string().nullable(),
+});
+export type McpStatus = z.infer<typeof McpStatus>;
