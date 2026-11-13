@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { duration, formatClock, relativeTime } from '@/lib/format';
+import { duration, formatClock, formatDateTime, relativeTime } from '@/lib/format';
 
 const NOW = Date.UTC(2026, 10, 12, 12, 0, 0);
 const ago = (ms: number) => NOW - ms;
@@ -47,5 +47,12 @@ describe('formatClock', () => {
   it('pads hours, minutes and seconds', () => {
     expect(formatClock(new Date(2026, 10, 13, 9, 5, 7).getTime())).toBe('09:05:07');
     expect(formatClock(new Date(2026, 10, 13, 23, 59, 0).getTime())).toBe('23:59:00');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('writes the date without padding and the time with it', () => {
+    expect(formatDateTime(new Date(2026, 8, 30, 16, 39).getTime())).toBe('2026年9月30日，16:39');
+    expect(formatDateTime(new Date(2026, 0, 4, 9, 5).getTime())).toBe('2026年1月4日，09:05');
   });
 });

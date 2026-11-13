@@ -35,3 +35,10 @@ export function formatClock(timestamp: number): string {
   const two = (n: number) => String(n).padStart(2, '0');
   return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
 }
+
+/** A date and time for a list, like 2026年9月30日，16:39, in the viewer's time zone. */
+export function formatDateTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日，${two(date.getHours())}:${two(date.getMinutes())}`;
+}
