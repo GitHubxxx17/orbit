@@ -38,6 +38,8 @@ export interface RunStarter {
     mode: RunMode;
     approval?: ApprovalMode | undefined;
     sessionId?: string | undefined;
+    /** A saved model for live mode; the default when omitted. */
+    modelId?: string | undefined;
   }): {
     runId: string;
     sessionId: string;
@@ -94,7 +96,7 @@ export interface RunManagerOptions {
   workspace: string;
   demoLlm: LlmClient;
   /** The model for live mode right now; asked on every call so saved settings apply at once. */
-  live?: () => { llm: LlmClient; name: string } | undefined;
+  live?: (modelId?: string) => { llm: LlmClient; name: string } | undefined;
   /** Where sessions are kept. Defaults to memory, which is lost on restart. */
   sessions?: SessionStore;
   /** Decides which tool calls run, wait for the user, or are refused. */
@@ -133,16 +135,22 @@ export class RunManager implements RunStarter {
     mode,
     approval = 'ask',
     sessionId,
+    modelId,
   }: {
     prompt: string;
     mode: RunMode;
     approval?: ApprovalMode | undefined;
     sessionId?: string | undefined;
+    modelId?: string | undefined;
   }): {
     runId: string;
     sessionId: string;
   } {
-    const llm = mode === 'live' ? this.options.live?.()?.llm : this.options.demoLlm;
+    if (mode === 'live' && modelId !== undefined && !this.options.live?.(modelId)) {
+      throw new RunRejected('unknown model', 400);
+    }
+    const live = mode === 'live' ? this.options.live?.(modelId) : undefined;
+    const llm = mode === 'live' ? live?.llm : this.options.demoLlm;
     if (!llm) throw new RunRejected('live mode is not configured on this server', 400);
 
     // A client cannot invent a session id: only ids this server handed out are accepted.
@@ -171,6 +179,7 @@ export class RunManager implements RunStarter {
     void runAgent({
       runId,
       agentId: mode === 'live' ? 'orbit-default' : 'orbit-demo',
+      ...(live ? { modelName: live.name } : {}),
       workspace: this.options.workspace,
       llm,
       store: this.options.store,

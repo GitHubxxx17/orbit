@@ -1,4 +1,4 @@
-import { ModelInput, type McpStatus, type OrbitEvent } from '@orbit/protocol';
+import { ModelInput, ModelTestInput, type McpStatus, type OrbitEvent } from '@orbit/protocol';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -14,7 +14,7 @@ export interface AppDeps {
   runs: RunStarter;
   approvals: ApprovalResolver;
   /** Model settings; absent in tests that do not exercise them. */
-  models?: Pick<ModelManager, 'status' | 'save' | 'clear' | 'test' | 'balance'>;
+  models?: Pick<ModelManager, 'list' | 'save' | 'remove' | 'setDefault' | 'test' | 'balance'>;
   /** The configured MCP servers, read-only. Absent in tests that do not exercise them. */
   mcp?: { status(): McpStatus };
 }
@@ -25,7 +25,11 @@ const StartBody = z.object({
   approval: z.enum(['ask', 'readonly']).default('ask'),
   /** Continue an earlier conversation; omit it to start a new one. */
   sessionId: z.string().min(1).optional(),
+  /** A saved model for this run (live mode); omit it for the default. */
+  modelId: z.string().min(1).optional(),
 });
+
+const DefaultBody = z.object({ id: z.string().min(1) });
 
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 
@@ -129,34 +133,61 @@ export function createApp({ store, runs, approvals, models, mcp }: AppDeps) {
   }
 
   if (models) {
-    // The key is write-only: no response here ever contains it.
-    app.get('/settings/model', (c) => c.json(models.status()));
+    // Keys are write-only: no response here ever contains one.
+    app.get('/settings/models', (c) => c.json(models.list()));
 
-    app.put('/settings/model', async (c) => {
+    // Run a change that may be refused (bad URL, missing key, unknown model) as a 400.
+    const attempt = (fn: () => unknown) => {
+      try {
+        return { value: fn() };
+      } catch (error) {
+        if (error instanceof SettingsError) return { error: error.message };
+        throw error;
+      }
+    };
+
+    app.post('/settings/models', async (c) => {
       const notJson = requireJson(c.req.header('content-type'));
       if (notJson) return c.json(notJson.body, notJson.status);
       const body = ModelInput.safeParse(await c.req.json().catch(() => null));
       if (!body.success) return c.json({ error: 'invalid request body' }, 400);
-      try {
-        return c.json(models.save(body.data));
-      } catch (error) {
-        if (error instanceof SettingsError) return c.json({ error: error.message }, 400);
-        throw error;
-      }
+      const result = attempt(() => models.save(undefined, body.data));
+      return result.error ? c.json({ error: result.error }, 400) : c.json(result.value, 201);
     });
 
-    app.delete('/settings/model', (c) => c.json(models.clear()));
-
-    // The provider's account balance. It asks with the saved key on the server; the answer holds
-    // numbers and a message, never the key.
-    app.get('/settings/model/balance', async (c) =>
-      c.json(await models.balance(c.req.query('refresh') === '1')),
-    );
-
-    app.post('/settings/model/test', async (c) => {
+    app.put('/settings/models/:id', async (c) => {
       const notJson = requireJson(c.req.header('content-type'));
       if (notJson) return c.json(notJson.body, notJson.status);
       const body = ModelInput.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+      const result = attempt(() => models.save(c.req.param('id'), body.data));
+      return result.error ? c.json({ error: result.error }, 400) : c.json(result.value);
+    });
+
+    app.delete('/settings/models/:id', (c) => {
+      const result = attempt(() => models.remove(c.req.param('id')));
+      return result.error ? c.json({ error: result.error }, 404) : c.json(result.value);
+    });
+
+    app.put('/settings/default-model', async (c) => {
+      const notJson = requireJson(c.req.header('content-type'));
+      if (notJson) return c.json(notJson.body, notJson.status);
+      const body = DefaultBody.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) return c.json({ error: 'invalid request body' }, 400);
+      const result = attempt(() => models.setDefault(body.data.id));
+      return result.error ? c.json({ error: result.error }, 404) : c.json(result.value);
+    });
+
+    // The provider's account balance for one model (`?model=<id>`, default if omitted). It asks
+    // with the saved key on the server; the answer holds numbers and a message, never the key.
+    app.get('/settings/balance', async (c) =>
+      c.json(await models.balance(c.req.query('model'), c.req.query('refresh') === '1')),
+    );
+
+    app.post('/settings/models/test', async (c) => {
+      const notJson = requireJson(c.req.header('content-type'));
+      if (notJson) return c.json(notJson.body, notJson.status);
+      const body = ModelTestInput.safeParse(await c.req.json().catch(() => null));
       if (!body.success) return c.json({ error: 'invalid request body' }, 400);
       try {
         return c.json(await models.test(body.data));

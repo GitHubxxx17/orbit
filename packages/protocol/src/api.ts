@@ -44,25 +44,42 @@ export const ModelSource = z.enum(['settings', 'env', 'none']);
 export type ModelSource = z.infer<typeof ModelSource>;
 
 /**
- * The model settings as the server reports them. The API key is never part of it: only whether
- * one exists and its last characters, so the user can tell which key is in use.
+ * One saved model as the server reports it. The API key is never part of it: only its last
+ * characters, so the user can tell which key is in use.
  */
-export const ModelStatus = z.object({
-  configured: z.boolean(),
-  source: ModelSource,
-  baseUrl: z.string().nullable(),
-  model: z.string().nullable(),
-  apiKeyHint: z.string().nullable(),
+export const ModelProfile = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  baseUrl: z.string(),
+  model: z.string(),
+  apiKeyHint: z.string(),
+  /** `env` is the fallback from .env: it cannot be edited or removed, only replaced. */
+  source: ModelSource.exclude(['none']),
 });
-export type ModelStatus = z.infer<typeof ModelStatus>;
+export type ModelProfile = z.infer<typeof ModelProfile>;
 
-/** What the settings page sends. `apiKey` may be left out to keep the stored one. */
+/** Every model that can be chosen, and the one new conversations start with (null if none). */
+export const ModelList = z.object({
+  models: z.array(ModelProfile),
+  defaultId: z.string().nullable(),
+});
+export type ModelList = z.infer<typeof ModelList>;
+
+/**
+ * What the settings page sends for one model. `apiKey` may be left out to keep the stored one
+ * (when the model already exists). `label` defaults to the model name.
+ */
 export const ModelInput = z.object({
+  label: z.string().trim().min(1).max(60).optional(),
   baseUrl: z.string().trim().min(1).max(300),
   model: z.string().trim().min(1).max(100),
   apiKey: z.string().trim().min(1).max(500).optional(),
 });
 export type ModelInput = z.infer<typeof ModelInput>;
+
+/** A connection test: the form values, plus the saved model whose key to use if none is typed. */
+export const ModelTestInput = ModelInput.extend({ id: z.string().min(1).optional() });
+export type ModelTestInput = z.infer<typeof ModelTestInput>;
 
 /** Result of trying the model with a tiny request. `message` never contains the key. */
 export const ModelTestResult = z.object({
