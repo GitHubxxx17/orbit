@@ -103,6 +103,8 @@ export const OrbitEvent = z.discriminatedUnion('type', [
     type: z.literal('model.usage'),
     promptTokens: z.number().int().nonnegative(),
     completionTokens: z.number().int().nonnegative(),
+    /** Input tokens served from the provider's prompt cache; absent when the provider did not say. */
+    cachedTokens: z.number().int().nonnegative().optional(),
   }),
   z.object({ ...base, type: z.literal('run.completed') }),
   z.object({ ...base, type: z.literal('run.failed'), reason: z.string() }),

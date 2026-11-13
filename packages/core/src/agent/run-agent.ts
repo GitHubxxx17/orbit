@@ -5,7 +5,7 @@ import type { ChatMessage, FinishReason, LlmClient, ToolCall } from '../llm/type
 import type { ToolRegistry } from '../tools/registry.js';
 import type { Tool } from '../tools/tool.js';
 import { denyAllApprover, type Approver } from './approval.js';
-import { fitToBudget } from './context.js';
+import { ContextWindow } from './context.js';
 import { readOnlyPolicy, type Policy } from './policy.js';
 
 export interface RunAgentOptions {
@@ -26,6 +26,10 @@ export interface RunAgentOptions {
   history?: ChatMessage[];
   /** Size budget for what is sent to the model, in characters. Default 120000. */
   maxContextChars?: number;
+  /** The model's context window in tokens, if known. Masking then starts at a share of it. */
+  contextWindow?: number | null;
+  /** Share of the window (0 to 1) at which old tool outputs are masked. Default 0.7. */
+  compactAt?: number;
   policy?: Policy;
   /** Asked when the policy answers "ask". Without one, every such call is refused. */
   approver?: Approver;
@@ -59,6 +63,11 @@ class RepeatTracker {
     this.seen.set(key, { output, count });
     return count;
   }
+
+  /** Start counting this call from scratch. */
+  forget(call: ToolCall): void {
+    this.seen.delete(`${call.name}\u0000${normalize(call.arguments)}`);
+  }
 }
 
 function normalize(raw: string): string {
@@ -66,6 +75,43 @@ function normalize(raw: string): string {
     return JSON.stringify(JSON.parse(raw));
   } catch {
     return raw.trim();
+  }
+}
+
+/**
+ * Remembers read-only calls whose result is still in the conversation, so that asking for the same
+ * thing again can be answered with a note instead of sending the same text a second time. A
+ * result that has been masked is no longer in the conversation, and anything that wrote to the
+ * workspace may have changed what a read would give: in both cases the call runs again.
+ */
+class ReadMemo {
+  private readonly seen = new Map<string, { callId: string; index: number }>();
+
+  private static key(call: ToolCall): string {
+    return `${call.name}\u0000${normalize(call.arguments)}`;
+  }
+
+  /** The note to give instead of running `call` again, or null if it must run. */
+  lookup(call: ToolCall, maskedBefore: number): string | null {
+    const earlier = this.seen.get(ReadMemo.key(call));
+    if (!earlier || earlier.index < maskedBefore) return null;
+    return `Same call as ${earlier.callId}, and nothing has been written since: its result is unchanged and is earlier in this conversation. Use that instead of reading again.`;
+  }
+
+  /** True if `call` was made before and its result has since been masked out of the conversation. */
+  wasMasked(call: ToolCall, maskedBefore: number): boolean {
+    const earlier = this.seen.get(ReadMemo.key(call));
+    return earlier !== undefined && earlier.index < maskedBefore;
+  }
+
+  /** Remember a call that really ran and produced output at message `index`. */
+  remember(call: ToolCall, ran: boolean, index: number): void {
+    if (ran) this.seen.set(ReadMemo.key(call), { callId: call.id, index });
+  }
+
+  /** A write may have changed any file: forget everything. */
+  invalidate(): void {
+    this.seen.clear();
   }
 }
 
@@ -103,8 +149,23 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
     ...(options.history ?? []),
     { role: 'user', content: options.prompt },
   ];
-  const maxChars = options.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS;
+  // Old tool outputs are masked in one go when the conversation has grown, not trimmed on every
+  // step, so each request keeps the start of the last one and the provider's prompt cache applies.
+  const context = new ContextWindow({
+    maxChars: options.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS,
+    windowTokens: options.contextWindow ?? null,
+    ...(options.compactAt === undefined ? {} : { compactAt: options.compactAt }),
+  });
   const repeats = new RepeatTracker();
+  const reads = new ReadMemo();
+
+  /** One model call with the conversation as `context` wants it sent. */
+  const callModel = async (withTools = true): Promise<Turn> => {
+    const sent = context.prepare(messages);
+    const turn = await streamTurn(options, sent, withTools);
+    if (turn.promptTokens !== null) context.observe(turn.promptTokens, ContextWindow.sizeOf(sent));
+    return turn;
+  };
 
   /**
    * End a run that is not getting anywhere, but not empty-handed: the model is asked once more,
@@ -117,7 +178,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
       role: 'user',
       content: `[Orbit system notice, not written by the user] Orbit stopped your tool use because ${cause}. ${WRAP_UP} Do not say the user asked you to stop.`,
     });
-    await streamTurn(options, fitToBudget(messages, { maxChars }), false);
+    await callModel(false);
     return fail(`${EARLY_STOP_PREFIX}${why}`);
   };
 
@@ -125,8 +186,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
     for (let step = 0; step < maxSteps; step++) {
       if (signal?.aborted) return fail('cancelled');
 
-      // `messages` keeps everything; only the copy sent to the model is trimmed to the budget.
-      const turn = await streamTurn(options, fitToBudget(messages, { maxChars }));
+      // `messages` keeps everything; only the copy sent to the model is masked or trimmed.
+      const turn = await callModel();
       messages.push({
         role: 'assistant',
         content: turn.text === '' ? null : turn.text,
@@ -139,8 +200,16 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
         return { status: 'completed' };
       }
 
-      const contents = await handleToolCalls(options, turn.toolCalls);
+      // A read whose earlier result was masked is the model asking for what it can no longer see,
+      // not going in circles: do not count it towards the loop limit.
+      const reread = turn.toolCalls.map((call) => reads.wasMasked(call, context.maskedBefore));
+      const { contents, wrote, ran } = await handleToolCalls(options, turn.toolCalls, (call) =>
+        reads.lookup(call, context.maskedBefore),
+      );
+      if (wrote) reads.invalidate();
       turn.toolCalls.forEach((call, index) => {
+        if (reread[index]) repeats.forget(call);
+        reads.remember(call, ran[index] === true, messages.length);
         messages.push({ role: 'tool', toolCallId: call.id, content: contents[index] ?? '' });
       });
       const stuck = turn.toolCalls.some(
@@ -164,6 +233,8 @@ interface Turn {
   text: string;
   toolCalls: ToolCall[];
   finishReason: FinishReason;
+  /** What the provider counted for the request; null when it did not say. */
+  promptTokens: number | null;
 }
 
 /** One model call: stream text into message.delta events and collect the requested tool calls. */
@@ -172,7 +243,7 @@ async function streamTurn(
   messages: ChatMessage[],
   withTools = true,
 ): Promise<Turn> {
-  const turn: Turn = { text: '', toolCalls: [], finishReason: 'unknown' };
+  const turn: Turn = { text: '', toolCalls: [], finishReason: 'unknown', promptTokens: null };
   const specs = withTools ? options.registry.specs() : [];
   const request = { messages, ...(specs.length > 0 ? { tools: specs } : {}) };
 
@@ -186,10 +257,14 @@ async function streamTurn(
       turn.finishReason = event.reason;
       // Record what the call cost when the provider says. Unknown stays unknown: no event.
       if (event.usage) {
+        turn.promptTokens = event.usage.promptTokens;
         options.store.append(options.runId, {
           type: 'model.usage',
           promptTokens: event.usage.promptTokens,
           completionTokens: event.usage.completionTokens,
+          ...(event.usage.cachedTokens === undefined
+            ? {}
+            : { cachedTokens: event.usage.cachedTokens }),
         });
       }
     }
@@ -217,10 +292,16 @@ interface Planned {
  *   1. record each request and let the policy decide;
  *   2. ask the user once for all calls the policy could not decide;
  *   3. run the allowed calls in order.
- * Returns the text sent back to the model for each call. Failures become tool results, not
- * exceptions: the model can recover.
+ * Returns the text sent back to the model for each call (failures become tool results, not
+ * exceptions: the model can recover), whether anything that could write was run, and which calls
+ * really ran a read-only tool (those can be remembered, see `ReadMemo`).
  */
-async function handleToolCalls(options: RunAgentOptions, calls: ToolCall[]): Promise<string[]> {
+async function handleToolCalls(
+  options: RunAgentOptions,
+  calls: ToolCall[],
+  /** For a repeated read-only call: the note to give instead of running it, or null. */
+  reuse: (call: ToolCall) => string | null,
+): Promise<{ contents: string[]; wrote: boolean; ran: boolean[] }> {
   const { runId, store } = options;
   const policy = options.policy ?? readOnlyPolicy;
   const signal = options.signal ?? new AbortController().signal;
@@ -325,11 +406,24 @@ async function handleToolCalls(options: RunAgentOptions, calls: ToolCall[]): Pro
 
   // Phase 3: run what was allowed, in the order the model asked.
   const contents: string[] = [];
+  const ran: boolean[] = [];
+  let wrote = false;
   for (const item of planned) {
     if (item.verdict !== 'allow' || !item.tool) {
       contents.push(item.refusal ?? `Denied: "${item.call.name}" was not allowed.`);
+      ran.push(false);
       continue;
     }
+    // A read-only call the model already made, whose result is still in the conversation and
+    // cannot have changed: say so instead of sending the same text again.
+    const note = item.tool.idempotent ? reuse(item.call) : null;
+    if (note !== null) {
+      store.append(runId, { type: 'tool.result', callId: item.call.id, ok: true, output: note });
+      contents.push(note);
+      ran.push(false);
+      continue;
+    }
+    if (item.risk !== 'read') wrote = true;
     let ok = true;
     let output: string;
     try {
@@ -347,8 +441,9 @@ async function handleToolCalls(options: RunAgentOptions, calls: ToolCall[]): Pro
     }
     store.append(runId, { type: 'tool.result', callId: item.call.id, ok, output });
     contents.push(output);
+    ran.push(ok && item.tool.idempotent === true);
   }
-  return contents;
+  return { contents, wrote, ran };
 }
 
 /** The model produces argument text; it may be malformed. Never trust it. */

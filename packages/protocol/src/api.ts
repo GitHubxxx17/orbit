@@ -41,6 +41,8 @@ export const ServerInfo = z.object({
   workspaceName: z.string(),
   /** The model behind live mode, or null when live mode is not configured. */
   liveModel: z.string().nullable(),
+  /** Whether runs can make an evidence report (ADR 0007); off by default (ADR 0017). */
+  report: z.boolean(),
   modes: z.array(RunMode),
 });
 export type ServerInfo = z.infer<typeof ServerInfo>;
@@ -59,6 +61,8 @@ export const ModelProfile = z.object({
   baseUrl: z.string(),
   model: z.string(),
   apiKeyHint: z.string(),
+  /** The model's context window in tokens, if the user said; null when unknown. */
+  contextWindow: z.number().int().positive().nullable(),
   /** `env` is the fallback from .env: it cannot be edited or removed, only replaced. */
   source: ModelSource.exclude(['none']),
 });
@@ -80,6 +84,11 @@ export const ModelInput = z.object({
   baseUrl: z.string().trim().min(1).max(300),
   model: z.string().trim().min(1).max(100),
   apiKey: z.string().trim().min(1).max(500).optional(),
+  /**
+   * The context window in tokens, as the provider documents it. Leave it out to keep the stored
+   * value, send null to clear it. Without it Orbit cannot show how full the window is.
+   */
+  contextWindow: z.number().int().min(1_000).max(10_000_000).nullable().optional(),
 });
 export type ModelInput = z.infer<typeof ModelInput>;
 
