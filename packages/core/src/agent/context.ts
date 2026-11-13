@@ -20,7 +20,8 @@ function sizeOf(message: ChatMessage): number {
 
 /**
  * Keep a conversation inside a size budget without breaking it:
- * 1. old tool outputs (the usual bulk) are replaced by a short note, the newest few stay;
+ * 1. old tool outputs (the usual bulk) are replaced by a short note, the newest few stay, and so
+ *    does every answer to the latest batch of tool calls;
  * 2. if it is still too big, the oldest whole exchanges are dropped, where an exchange is a user
  *    message and everything up to the next one. Dropping whole exchanges keeps every assistant
  *    tool call next to its tool answers, which model APIs require.
@@ -35,6 +36,10 @@ export function fitToBudget(
 
   const toolIndexes = messages.flatMap((m, i) => (m.role === 'tool' ? [i] : []));
   const stale = new Set(toolIndexes.slice(0, Math.max(0, toolIndexes.length - keep)));
+  // The answers to the latest batch of tool calls are never trimmed, however many there are: the
+  // model has not seen them yet, and losing them makes it ask for the same files again.
+  const lastAsk = messages.findLastIndex((m) => m.role === 'assistant' && m.toolCalls?.length);
+  for (const index of toolIndexes) if (index > lastAsk) stale.delete(index);
   const trimmed = messages.map((message, index): ChatMessage =>
     stale.has(index) && message.role === 'tool' && message.content.length > SHORT_OUTPUT
       ? { ...message, content: OMITTED }

@@ -45,6 +45,30 @@ describe('fitToBudget', () => {
     expect(outputs[2]).toBe(big(500));
   });
 
+  it('keeps every answer to the latest batch of parallel tool calls, however many', () => {
+    const calls = Array.from({ length: 10 }, (_, i) => ({
+      id: `p${i}`,
+      name: 'read_file',
+      arguments: '{}',
+    }));
+    const messages: ChatMessage[] = [
+      system,
+      user('q'),
+      ...toolTurn('old', big(500)),
+      { role: 'assistant', content: null, toolCalls: calls },
+      ...calls.map((call): ChatMessage => ({
+        role: 'tool',
+        toolCallId: call.id,
+        content: big(500),
+      })),
+    ];
+    const fitted = fitToBudget(messages, { maxChars: 100_000, keepToolOutputs: 6 });
+    const outputs = fitted.flatMap((m) => (m.role === 'tool' ? [m.content] : []));
+    expect(outputs[0]).toBe('[earlier tool output omitted to save space]');
+    expect(outputs.slice(1).every((o) => o === big(500))).toBe(true);
+    expect(pairingIsIntact(fitted)).toBe(true);
+  });
+
   it('drops the oldest whole exchanges first and keeps the system prompt and the latest one', () => {
     const messages = [
       system,
