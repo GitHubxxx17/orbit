@@ -98,7 +98,7 @@ const components: Components = {
 /** An assistant answer rendered as Markdown. Memoised: only the streaming block changes. */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return (
-    <div className="text-[15px] break-words">
+    <div className="text-(length:--msg-size) break-words">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>

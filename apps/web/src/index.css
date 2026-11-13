@@ -128,3 +128,9 @@
     @apply font-sans;
   }
 }
+
+/* Conversation look; the appearance settings change these on the root element. */
+:root {
+  --msg-size: 15px;
+  --content-max: 48rem;
+}
