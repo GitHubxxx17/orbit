@@ -9,7 +9,10 @@ export type ViolationCode =
   | 'result-without-allow'
   | 'approval-unknown-call'
   | 'user-decision-without-approval'
-  | 'unresolved-tool-call';
+  | 'unresolved-tool-call'
+  | 'change-without-allow'
+  | 'rollback-without-change'
+  | 'duplicate-rollback';
 
 export interface Violation {
   code: ViolationCode;
@@ -31,6 +34,8 @@ export function checkInvariants(events: readonly OrbitEvent[]): Violation[] {
   const approvalAsked = new Set<string>();
   const decision = new Map<string, 'allow' | 'deny'>();
   const resolved = new Set<string>();
+  const changed = new Set<string>();
+  const rolledBack = new Set<string>();
   let terminalSeq: number | null = null;
 
   events.forEach((event, index) => {
@@ -40,11 +45,26 @@ export function checkInvariants(events: readonly OrbitEvent[]): Violation[] {
     if (index === 0 && event.type !== 'run.started') {
       add('missing-run-started', event.seq, 'the first event of a run must be run.started');
     }
-    if (terminalSeq !== null) {
+    // A rollback happens long after the run ended, so it is the one event allowed afterwards.
+    if (terminalSeq !== null && event.type !== 'file.rolledback') {
       add('event-after-terminal', event.seq, `event after terminal event at seq ${terminalSeq}`);
     }
 
     switch (event.type) {
+      case 'file.changed':
+        if (decision.get(event.callId) !== 'allow') {
+          add('change-without-allow', event.seq, `call ${event.callId} has no allow decision`);
+        }
+        changed.add(event.callId);
+        break;
+      case 'file.rolledback':
+        if (!changed.has(event.callId)) {
+          add('rollback-without-change', event.seq, `call ${event.callId} changed no file`);
+        } else if (rolledBack.has(event.callId)) {
+          add('duplicate-rollback', event.seq, `call ${event.callId} was already rolled back`);
+        }
+        rolledBack.add(event.callId);
+        break;
       case 'tool.requested':
         requested.add(event.callId);
         break;

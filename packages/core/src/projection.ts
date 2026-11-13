@@ -104,6 +104,10 @@ export function applyEvent(state: RunState, event: OrbitEvent): RunState {
           output: event.output,
         })),
       };
+    case 'file.changed':
+    case 'file.rolledback':
+      // File effects are for audit and rollback; they do not change what the run looks like.
+      return next;
     case 'run.completed':
       return { ...next, status: 'completed' };
     case 'run.failed':

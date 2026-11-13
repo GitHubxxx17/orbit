@@ -66,6 +66,29 @@ export const OrbitEvent = z.discriminatedUnion('type', [
     ok: z.boolean(),
     output: z.string(),
   }),
+  /**
+   * A tool really changed a file. Keeps both versions of the text so the change can be undone later
+   * (rollback) and so it is auditable. `before` is null when the file did not exist.
+   */
+  z.object({
+    ...base,
+    type: z.literal('file.changed'),
+    callId: z.string().min(1),
+    /** Workspace-relative path, forward slashes. */
+    path: z.string().min(1),
+    before: z.string().nullable(),
+    after: z.string(),
+  }),
+  /**
+   * The user undid a `file.changed`. The only event allowed after a run's terminal event, because
+   * a rollback happens long after the run ended. Appended, never an edit of the original.
+   */
+  z.object({
+    ...base,
+    type: z.literal('file.rolledback'),
+    callId: z.string().min(1),
+    path: z.string().min(1),
+  }),
   z.object({ ...base, type: z.literal('run.completed') }),
   z.object({ ...base, type: z.literal('run.failed'), reason: z.string() }),
 ]);
