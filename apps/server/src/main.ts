@@ -6,6 +6,7 @@ import {
   createPolicy,
   defaultPolicyConfig,
   loadLlmConfig,
+  reportTool,
   ToolRegistry,
   type LlmConfig,
 } from '@orbit/core';
@@ -44,6 +45,7 @@ if (!models.current())
 
 const registry = new ToolRegistry();
 for (const tool of await createTools(workspace)) registry.register(tool);
+registry.register(reportTool());
 
 const stores = openStores(path.join(dataDir, 'orbit.db'));
 const interrupted = recoverInterruptedRuns(stores.sessions, stores.events);
