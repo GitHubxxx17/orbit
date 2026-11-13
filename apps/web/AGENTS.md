@@ -26,3 +26,7 @@ React 19 + Vite + Tailwind CSS 4 UI.
 - The report card (`components/report-card.tsx`) is derived from tool cards by `state/report.ts`
   using the shared rule in `@orbit/protocol`. Never mark a claim from the model's own wording.
   The label means "backed by a real call", not "proven true".
+
+- Appearance (`lib/appearance.ts`) and chat preferences (`lib/preferences.ts`) are tastes of one
+  browser: kept in `localStorage`, parsed field by field with safe fallbacks, never sent to the
+  server. Deep components read the preferences through `usePreferences()`, not through props.

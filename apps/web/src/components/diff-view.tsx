@@ -1,5 +1,7 @@
 import { memo } from 'react';
 
+import { usePreferences } from '@/hooks/use-preferences';
+
 /** Style a unified-diff line by its first characters. */
 function lineClass(line: string): string {
   if (line.startsWith('+++') || line.startsWith('---')) return 'text-muted-foreground';
@@ -10,6 +12,7 @@ function lineClass(line: string): string {
 }
 
 function DiffViewImpl({ diff, label }: { diff: string; label: string }) {
+  const { plainDiff } = usePreferences();
   // The separator line of "====" that diff libraries print adds nothing.
   const lines = diff.split('\n').filter((line) => !/^=+$/.test(line));
 
@@ -20,7 +23,7 @@ function DiffViewImpl({ diff, label }: { diff: string; label: string }) {
       aria-label={label}
     >
       {lines.map((line, index) => (
-        <div key={index} className={`px-2 whitespace-pre ${lineClass(line)}`}>
+        <div key={index} className={`px-2 whitespace-pre ${plainDiff ? '' : lineClass(line)}`}>
           {line === '' ? ' ' : line}
         </div>
       ))}

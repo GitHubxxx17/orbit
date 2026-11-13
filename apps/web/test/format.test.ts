@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { duration, relativeTime } from '@/lib/format';
+import { duration, formatClock, relativeTime } from '@/lib/format';
 
 const NOW = Date.UTC(2026, 10, 12, 12, 0, 0);
 const ago = (ms: number) => NOW - ms;
@@ -40,5 +40,12 @@ describe('duration', () => {
     [600_000, '10 分 00 秒'],
   ])('%d ms -> %s', (ms, expected) => {
     expect(duration(ms)).toBe(expected);
+  });
+});
+
+describe('formatClock', () => {
+  it('pads hours, minutes and seconds', () => {
+    expect(formatClock(new Date(2026, 10, 13, 9, 5, 7).getTime())).toBe('09:05:07');
+    expect(formatClock(new Date(2026, 10, 13, 23, 59, 0).getTime())).toBe('23:59:00');
   });
 });

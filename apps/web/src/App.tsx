@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { useAppearance } from '@/hooks/use-appearance';
 import { useBalance } from '@/hooks/use-balance';
 import { useModels } from '@/hooks/use-models';
+import { PreferencesContext, usePreferencesState } from '@/hooks/use-preferences';
 import { useReplay } from '@/hooks/use-replay';
 import { useRun } from '@/hooks/use-run';
 import { useSessions } from '@/hooks/use-sessions';
@@ -54,6 +55,7 @@ export function App() {
   } = useRun();
   const { theme, cycle: cycleTheme } = useTheme();
   const { appearance, setAppearance } = useAppearance();
+  const { preferences, setPreferences } = usePreferencesState();
   const models = useModels();
   // The model the user picked for new runs; until they pick, the default one is used.
   const [pickedModel, setPickedModel] = useState<string | null>(null);
@@ -61,7 +63,9 @@ export function App() {
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [infoFailed, setInfoFailed] = useState(false);
   const [mode, setMode] = useState<RunMode>('demo');
-  const [approval, setApproval] = useState<ApprovalMode>('ask');
+  // What the user picked in the input box; until then the saved default applies.
+  const [pickedApproval, setApproval] = useState<ApprovalMode | null>(null);
+  const approval = pickedApproval ?? preferences.defaultApproval;
   const [text, setText] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [panelOpen, setPanelOpen] = useState(true);
@@ -198,151 +202,155 @@ export function App() {
         }}
         appearance={appearance}
         onAppearance={setAppearance}
+        preferences={preferences}
+        onPreferences={setPreferences}
       />
     );
   }
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      {sidebarOpen && (
-        <div className="hidden md:block">
-          <Sidebar
-            workspaceName={workspaceName}
-            sessions={sessions}
-            failed={sessionsFailed}
-            activeId={sessionId}
-            onSelect={(id) => {
-              replay.exit();
-              void openSession(id);
-            }}
-            onNew={() => {
-              replay.exit();
-              newSession();
-            }}
-            onRename={rename}
-            onDelete={remove}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
-        </div>
-      )}
+    <PreferencesContext.Provider value={preferences}>
+      <div className="flex h-screen bg-background text-foreground">
+        {sidebarOpen && (
+          <div className="hidden md:block">
+            <Sidebar
+              workspaceName={workspaceName}
+              sessions={sessions}
+              failed={sessionsFailed}
+              activeId={sessionId}
+              onSelect={(id) => {
+                replay.exit();
+                void openSession(id);
+              }}
+              onNew={() => {
+                replay.exit();
+                newSession();
+              }}
+              onRename={rename}
+              onDelete={remove}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          </div>
+        )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="hidden md:inline-flex"
-            onClick={() => setSidebarOpen((open) => !open)}
-            aria-label={sidebarOpen ? '收起会话栏' : '展开会话栏'}
-            aria-expanded={sidebarOpen}
-          >
-            <PanelLeft aria-hidden className="size-4" />
-          </Button>
-          <Orbit aria-hidden className="size-5 text-sky-500" />
-          <span className="text-sm font-semibold tracking-tight">星轨</span>
-          <span aria-hidden className="text-muted-foreground">
-            /
-          </span>
-          <h1 className="min-w-0 flex-1 truncate text-sm text-muted-foreground" title={title}>
-            {title}
-          </h1>
-
-          {hasConversation && !replaying && (
-            <Badge variant={running ? 'default' : 'secondary'}>{STATUS_LABEL[view.status]}</Badge>
-          )}
-          {replaying && <Badge variant="secondary">回放中</Badge>}
-          {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
-          {sessionId && !running && !replaying && hasConversation && (
-            <Button variant="ghost" size="sm" onClick={() => void replay.enter(sessionId)}>
-              <Rewind aria-hidden className="size-3.5" />
-              回放
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden md:inline-flex"
+              onClick={() => setSidebarOpen((open) => !open)}
+              aria-label={sidebarOpen ? '收起会话栏' : '展开会话栏'}
+              aria-expanded={sidebarOpen}
+            >
+              <PanelLeft aria-hidden className="size-4" />
             </Button>
+            <Orbit aria-hidden className="size-5 text-sky-500" />
+            <span className="text-sm font-semibold tracking-tight">星轨</span>
+            <span aria-hidden className="text-muted-foreground">
+              /
+            </span>
+            <h1 className="min-w-0 flex-1 truncate text-sm text-muted-foreground" title={title}>
+              {title}
+            </h1>
+
+            {hasConversation && !replaying && (
+              <Badge variant={running ? 'default' : 'secondary'}>{STATUS_LABEL[view.status]}</Badge>
+            )}
+            {replaying && <Badge variant="secondary">回放中</Badge>}
+            {connection === 'reconnecting' && <Badge variant="destructive">重新连接中…</Badge>}
+            {sessionId && !running && !replaying && hasConversation && (
+              <Button variant="ghost" size="sm" onClick={() => void replay.enter(sessionId)}>
+                <Rewind aria-hidden className="size-3.5" />
+                回放
+              </Button>
+            )}
+            <ThemeToggle theme={theme} onCycle={cycleTheme} />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden lg:inline-flex"
+              onClick={() => setPanelOpen((open) => !open)}
+              aria-label={panelOpen ? '收起侧栏' : '展开侧栏'}
+              aria-expanded={panelOpen}
+            >
+              <PanelRight aria-hidden className="size-4" />
+            </Button>
+          </header>
+
+          {actionError && (
+            <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
+              {actionError}
+            </p>
           )}
-          <ThemeToggle theme={theme} onCycle={cycleTheme} />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="hidden lg:inline-flex"
-            onClick={() => setPanelOpen((open) => !open)}
-            aria-label={panelOpen ? '收起侧栏' : '展开侧栏'}
-            aria-expanded={panelOpen}
-          >
-            <PanelRight aria-hidden className="size-4" />
-          </Button>
-        </header>
 
-        {actionError && (
-          <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
-            {actionError}
-          </p>
-        )}
+          {infoFailed && (
+            <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
+              连不上服务端。请先在另一个终端启动服务端：pnpm --filter @orbit/server dev。
+            </p>
+          )}
 
-        {infoFailed && (
-          <p role="alert" className="bg-destructive/10 px-4 py-2 text-sm text-destructive">
-            连不上服务端。请先在另一个终端启动服务端：pnpm --filter @orbit/server dev。
-          </p>
-        )}
-
-        <div className="flex min-h-0 flex-1">
-          <main className="flex min-w-0 flex-1 flex-col" aria-label="对话">
-            {hasConversation || replaying ? (
-              <>
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <Conversation
-                    session={shown}
-                    liveModel={info?.liveModel ?? null}
-                    onApprove={replaying ? null : approve}
-                    onFork={replaying || !sessionId ? null : fork}
-                  />
-                </div>
-                <div className="mx-auto w-full max-w-(--content-max) p-3">
-                  {(error ?? replay.error) && (
-                    <p role="alert" className="mb-2 text-sm text-destructive">
-                      {error ?? replay.error}
-                    </p>
-                  )}
-                  {replaying ? (
-                    <ReplayBar
-                      step={replay.step}
-                      total={replay.total}
-                      current={replay.current}
-                      playing={replay.playing}
-                      onGoTo={replay.goTo}
-                      onToggle={replay.toggle}
-                      onExit={replay.exit}
+          <div className="flex min-h-0 flex-1">
+            <main className="flex min-w-0 flex-1 flex-col" aria-label="对话">
+              {hasConversation || replaying ? (
+                <>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <Conversation
+                      session={shown}
+                      liveModel={info?.liveModel ?? null}
+                      onApprove={replaying ? null : approve}
+                      onFork={replaying || !sessionId ? null : fork}
                     />
-                  ) : (
-                    composer
-                  )}
+                  </div>
+                  <div className="mx-auto w-full max-w-(--content-max) p-3">
+                    {(error ?? replay.error) && (
+                      <p role="alert" className="mb-2 text-sm text-destructive">
+                        {error ?? replay.error}
+                      </p>
+                    )}
+                    {replaying ? (
+                      <ReplayBar
+                        step={replay.step}
+                        total={replay.total}
+                        current={replay.current}
+                        playing={replay.playing}
+                        onGoTo={replay.goTo}
+                        onToggle={replay.toggle}
+                        onExit={replay.exit}
+                      />
+                    ) : (
+                      composer
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center gap-8 p-6">
+                  <EmptyState workspaceName={workspaceName} onPick={setText} />
+                  <div className="w-full max-w-2xl">
+                    {error && (
+                      <p role="alert" className="mb-2 text-sm text-destructive">
+                        {error}
+                      </p>
+                    )}
+                    {composer}
+                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-8 p-6">
-                <EmptyState workspaceName={workspaceName} onPick={setText} />
-                <div className="w-full max-w-2xl">
-                  {error && (
-                    <p role="alert" className="mb-2 text-sm text-destructive">
-                      {error}
-                    </p>
-                  )}
-                  {composer}
-                </div>
+              )}
+            </main>
+
+            {panelOpen && (
+              <div className="hidden lg:block">
+                <RightPanel
+                  rows={shownLast.rows}
+                  lastSeq={shownLast.lastSeq}
+                  changes={shownChanges}
+                  onRollback={replaying ? null : rollback}
+                />
               </div>
             )}
-          </main>
-
-          {panelOpen && (
-            <div className="hidden lg:block">
-              <RightPanel
-                rows={shownLast.rows}
-                lastSeq={shownLast.lastSeq}
-                changes={shownChanges}
-                onRollback={replaying ? null : rollback}
-              />
-            </div>
-          )}
+          </div>
         </div>
       </div>
-    </div>
+    </PreferencesContext.Provider>
   );
 }

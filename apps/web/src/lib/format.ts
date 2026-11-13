@@ -28,3 +28,10 @@ export function formatTokens(count: number): string {
   if (thousands < 1000) return `${thousands.toFixed(1)}k`;
   return `${(Math.round(count / 100_000) / 10).toFixed(1)}M`;
 }
+
+/** The wall-clock time of day, like 09:05:07, in the viewer's time zone. */
+export function formatClock(timestamp: number): string {
+  const date = new Date(timestamp);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}

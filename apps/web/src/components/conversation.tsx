@@ -6,6 +6,8 @@ import { ApprovalPanel } from '@/components/approval-panel';
 import { Markdown } from '@/components/markdown';
 import { ProcessGroup } from '@/components/process-group';
 import { ReportCard } from '@/components/report-card';
+import { usePreferences } from '@/hooks/use-preferences';
+import { formatClock } from '@/lib/format';
 import { layoutItems } from '@/state/group';
 import { describeFailure } from '@/state/failure';
 import { turnFooter } from '@/state/footer';
@@ -31,11 +33,19 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: T
   const report = reportOf(view);
   const missing = missingReport(view);
   const footer = turnFooter(view, liveModel);
+  const { showTimestamps } = usePreferences();
   const waiting = Object.values(view.tools).filter((card) => card.status === 'awaiting');
   const approvalId = waiting[0]?.approvalId;
 
   return (
     <section aria-label={`第 ${index + 1} 轮`} className="mb-6">
+      {showTimestamps && view.startedAt !== null && (
+        <p className="mb-1 text-right text-xs text-muted-foreground">
+          <time dateTime={new Date(view.startedAt).toISOString()}>
+            {formatClock(view.startedAt)}
+          </time>
+        </p>
+      )}
       {view.prompt !== null && (
         <div className="ml-auto w-fit max-w-[85%] rounded-2xl bg-primary px-4 py-2 whitespace-pre-wrap text-primary-foreground">
           {view.prompt}
