@@ -31,24 +31,25 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 
 ## Status of each part
 
-| Part                              | Status      |
-| --------------------------------- | ----------- |
-| Event schema, in-memory store     | implemented |
-| Write-time validation             | implemented |
-| Run projection, invariant checker | implemented |
-| Read-events HTTP endpoint         | implemented |
-| Model adapter (OpenAI-compatible) | implemented |
-| Tool registry, agent loop         | implemented |
-| Read-only file tools, sandbox     | implemented |
-| SSE run API, demo model, chat UI  | implemented |
-| Policy rules, batched approval    | implemented |
-| Write tool with diff preview      | implemented |
-| Sessions, history, context budget | implemented |
-| Session list, theme, Markdown UI  | implemented |
-| SQLite persistence, sessions      | implemented |
-| Replay, fork, rollback            | implemented |
-| Claims and evidence (report tool) | implemented |
-| MCP client (stdio and HTTP)       | implemented |
-| Evaluation, desktop shell         | planned     |
+| Part                               | Status      |
+| ---------------------------------- | ----------- |
+| Event schema, in-memory store      | implemented |
+| Write-time validation              | implemented |
+| Run projection, invariant checker  | implemented |
+| Read-events HTTP endpoint          | implemented |
+| Model adapter (OpenAI-compatible)  | implemented |
+| Tool registry, agent loop          | implemented |
+| Read-only file tools, sandbox      | implemented |
+| SSE run API, demo model, chat UI   | implemented |
+| Policy rules, batched approval     | implemented |
+| Write tool with diff preview       | implemented |
+| Sessions, history, context budget  | implemented |
+| Session list, theme, Markdown UI   | implemented |
+| SQLite persistence, sessions       | implemented |
+| Replay, fork, rollback             | implemented |
+| Claims and evidence (report tool)  | implemented |
+| MCP client (stdio and HTTP)        | implemented |
+| Evaluation (cases, judge, compare) | implemented |
+| Desktop shell                      | planned     |
 
 When you implement a planned part, update this table in the same change.
