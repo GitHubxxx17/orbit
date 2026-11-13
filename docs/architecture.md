@@ -50,6 +50,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Claims and evidence (report tool)  | implemented |
 | MCP client (stdio and HTTP)        | implemented |
 | Evaluation (cases, judge, compare) | implemented |
+| Token usage per turn               | implemented |
 | Desktop shell                      | planned     |
 
 When you implement a planned part, update this table in the same change.
