@@ -10,3 +10,6 @@ The contract package. Everything here is a public interface to every other packa
 - This package must not import any other `@orbit/*` package or any runtime-specific API
   (no `node:*`, no DOM), so both server and web can use it.
 - Every schema change needs a test in `test/events.test.ts` covering one valid and one invalid case.
+
+- `src/claims.ts` holds the one rule for "does this claim have evidence" (ADR 0007). It is a pure
+  function of events, shared by the server and the web app. Do not copy it; extend it and its tests.
