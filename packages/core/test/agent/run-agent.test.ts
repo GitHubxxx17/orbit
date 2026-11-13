@@ -86,6 +86,19 @@ describe('runAgent', () => {
     expect(checkInvariants(store.read('r1'))).toEqual([]);
   });
 
+  it('records the model name in run.started when one is given', async () => {
+    const named = setup([[say('a'), finish()]], { modelName: 'deepseek-flash' });
+    await runAgent(named.options);
+    expect(named.store.read('r1')[0]).toMatchObject({
+      type: 'run.started',
+      model: 'deepseek-flash',
+    });
+
+    const demo = setup([[say('a'), finish()]]);
+    await runAgent(demo.options);
+    expect(demo.store.read('r1')[0]).not.toHaveProperty('model');
+  });
+
   it('runs a tool and feeds the result back to the model', async () => {
     const { store, llm, options } = setup([
       [call('c1', 'echo', { text: 'ping' }), finish('tool_calls')],
