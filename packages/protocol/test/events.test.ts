@@ -53,6 +53,22 @@ describe('OrbitEvent', () => {
   });
 });
 
+describe('model usage event', () => {
+  const usage = { ...base, type: 'model.usage', promptTokens: 1200, completionTokens: 85 };
+
+  it('accepts the tokens one model call used, including zero', () => {
+    expect(OrbitEvent.safeParse(usage).success).toBe(true);
+    expect(OrbitEvent.safeParse({ ...usage, completionTokens: 0 }).success).toBe(true);
+  });
+
+  it('rejects a negative, fractional or missing count', () => {
+    expect(OrbitEvent.safeParse({ ...usage, promptTokens: -1 }).success).toBe(false);
+    expect(OrbitEvent.safeParse({ ...usage, completionTokens: 1.5 }).success).toBe(false);
+    const { completionTokens: _omitted, ...missing } = usage;
+    expect(OrbitEvent.safeParse(missing).success).toBe(false);
+  });
+});
+
 describe('file change events', () => {
   const changed = { ...base, type: 'file.changed', callId: 'c1', path: 'a.txt', after: 'new' };
 

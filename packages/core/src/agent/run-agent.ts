@@ -109,7 +109,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
     if (signal?.aborted) return fail('cancelled');
     messages.push({
       role: 'user',
-      content: `Orbit stopped your tool use because ${cause}. ${WRAP_UP}`,
+      content: `[Orbit system notice, not written by the user] Orbit stopped your tool use because ${cause}. ${WRAP_UP} Do not say the user asked you to stop.`,
     });
     await streamTurn(options, fitToBudget(messages, { maxChars }), false);
     return fail(`${EARLY_STOP_PREFIX}${why}`);
@@ -178,6 +178,14 @@ async function streamTurn(
       turn.toolCalls.push(event.call);
     } else {
       turn.finishReason = event.reason;
+      // Record what the call cost when the provider says. Unknown stays unknown: no event.
+      if (event.usage) {
+        options.store.append(options.runId, {
+          type: 'model.usage',
+          promptTokens: event.usage.promptTokens,
+          completionTokens: event.usage.completionTokens,
+        });
+      }
     }
   }
   return turn;
