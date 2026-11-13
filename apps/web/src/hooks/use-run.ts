@@ -74,13 +74,18 @@ export function useRun() {
   );
 
   const start = useCallback(
-    async (prompt: string, mode: RunMode, approval: ApprovalMode): Promise<boolean> => {
+    async (
+      prompt: string,
+      mode: RunMode,
+      approval: ApprovalMode,
+      modelId?: string,
+    ): Promise<boolean> => {
       close();
       buffer.current = [];
       setError(null);
       dispatch({ type: 'new-turn', prompt });
       try {
-        const started = await startRun(prompt, mode, approval, sessionId ?? undefined);
+        const started = await startRun(prompt, mode, approval, sessionId ?? undefined, modelId);
         setSessionId(started.sessionId);
         follow(started.runId);
         return true;

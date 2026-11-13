@@ -29,7 +29,12 @@ function sse(): Response {
 }
 
 function manager(extra: Partial<ConstructorParameters<typeof ModelManager>[0]> = {}) {
-  return new ModelManager({ settings: new SettingsStore(file()), ...extra });
+  let counter = 0;
+  return new ModelManager({
+    settings: new SettingsStore(file()),
+    newId: () => `m-${(counter += 1)}`,
+    ...extra,
+  });
 }
 
 describe('normalizeBaseUrl', () => {
@@ -48,56 +53,112 @@ describe('normalizeBaseUrl', () => {
 });
 
 describe('ModelManager', () => {
-  it('starts unconfigured', () => {
+  it('starts with no models', () => {
     const m = manager();
     expect(m.current()).toBeUndefined();
-    expect(m.status()).toMatchObject({ configured: false, source: 'none' });
+    expect(m.list()).toEqual({ models: [], defaultId: null });
   });
 
-  it('saves, swaps the live client at once and hides the key', () => {
+  it('saves a model, makes it the default, swaps the client at once and hides the key', () => {
     const m = manager();
-    const status = m.save(input);
-    expect(status).toEqual({
-      configured: true,
-      source: 'settings',
-      baseUrl: 'https://api.example.com/v1',
-      model: 'm1',
-      apiKeyHint: '1234',
+    const list = m.save(undefined, input);
+    expect(list).toEqual({
+      models: [
+        {
+          id: 'm-1',
+          label: 'm1',
+          baseUrl: 'https://api.example.com/v1',
+          model: 'm1',
+          apiKeyHint: '1234',
+          source: 'settings',
+        },
+      ],
+      defaultId: 'm-1',
     });
-    expect(JSON.stringify(status)).not.toContain(KEY);
+    expect(JSON.stringify(list)).not.toContain(KEY);
     expect(m.current()?.name).toBe('m1');
   });
 
+  it('keeps several models and picks one by id, the default when none is named', () => {
+    const m = manager();
+    m.save(undefined, input);
+    m.save(undefined, { ...input, model: 'm2', label: 'Second' });
+    expect(m.list().models.map((x) => x.label)).toEqual(['m1', 'Second']);
+    expect(m.current()?.name).toBe('m1');
+    expect(m.current('m-2')?.name).toBe('m2');
+    expect(m.current('nope')).toBeUndefined();
+    m.setDefault('m-2');
+    expect(m.current()?.name).toBe('m2');
+  });
+
+  it('moves the default to the next model when the default is removed', () => {
+    const m = manager();
+    m.save(undefined, input);
+    m.save(undefined, { ...input, model: 'm2' });
+    expect(m.remove('m-1').defaultId).toBe('m-2');
+    expect(m.remove('m-2')).toEqual({ models: [], defaultId: null });
+    expect(m.current()).toBeUndefined();
+  });
+
+  it('refuses to change or remove a model that is not saved', () => {
+    const m = manager();
+    expect(() => m.save('ghost', input)).toThrow(SettingsError);
+    expect(() => m.remove('ghost')).toThrow(SettingsError);
+    expect(() => m.setDefault('ghost')).toThrow(SettingsError);
+  });
+
   it('writes the file privately, and a new manager reads it back', () => {
-    manager().save(input);
+    manager().save(undefined, input);
     expect(fs.statSync(file()).mode & 0o777).toBe(0o600);
     expect(fs.statSync(path.dirname(file())).mode & 0o777).toBe(0o700);
     expect(fs.readdirSync(path.dirname(file()))).toEqual(['settings.json']);
-    expect(manager().status()).toMatchObject({ source: 'settings', model: 'm1' });
+    expect(manager().list().models[0]).toMatchObject({ source: 'settings', model: 'm1' });
   });
 
-  it('keeps the stored key when an update leaves it out, and requires one when there is none', () => {
+  it('keeps the stored key when an update leaves it out, and requires one for a new model', () => {
     const m = manager();
-    expect(() => m.save({ baseUrl: input.baseUrl, model: 'm1' })).toThrow(SettingsError);
-    m.save(input);
-    m.save({ baseUrl: input.baseUrl, model: 'm2' });
-    expect(m.status()).toMatchObject({ model: 'm2', apiKeyHint: '1234' });
+    expect(() => m.save(undefined, { baseUrl: input.baseUrl, model: 'm1' })).toThrow(SettingsError);
+    m.save(undefined, input);
+    m.save('m-1', { baseUrl: input.baseUrl, model: 'm2' });
+    expect(m.list().models[0]).toMatchObject({ model: 'm2', apiKeyHint: '1234' });
   });
 
-  it('prefers saved settings over the environment and falls back after clearing', () => {
+  it('reads a file written by the single-model version as one model', () => {
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
+    fs.writeFileSync(
+      file(),
+      JSON.stringify({ model: { baseUrl: 'https://old.example.com', apiKey: KEY, model: 'old' } }),
+    );
+    const m = manager();
+    expect(m.list()).toMatchObject({
+      models: [{ id: 'default', label: 'old', model: 'old', source: 'settings' }],
+      defaultId: 'default',
+    });
+    // The first save writes the new format and drops the old field.
+    m.save(undefined, input);
+    const written = JSON.parse(fs.readFileSync(file(), 'utf8')) as Record<string, unknown>;
+    expect(written).not.toHaveProperty('model');
+    expect(manager().list().models).toHaveLength(2);
+  });
+
+  it('uses the environment model only while nothing is saved', () => {
     const env = { baseUrl: 'https://env.example.com', apiKey: 'env-key-0000', model: 'env-model' };
     const m = manager({ env });
-    expect(m.status()).toMatchObject({ source: 'env', model: 'env-model' });
-    m.save(input);
-    expect(m.status().source).toBe('settings');
-    expect(m.clear()).toMatchObject({ source: 'env', model: 'env-model' });
-    expect(manager().clear().configured).toBe(false);
+    expect(m.list()).toMatchObject({
+      models: [{ id: 'env', source: 'env', model: 'env-model' }],
+      defaultId: 'env',
+    });
+    expect(() => m.remove('env')).toThrow(SettingsError);
+    m.save(undefined, input);
+    expect(m.list().models.map((x) => x.source)).toEqual(['settings']);
+    m.remove('m-1');
+    expect(m.list().models[0]?.source).toBe('env');
   });
 
-  it('treats a corrupt settings file as not configured', () => {
+  it('treats a corrupt settings file as having no models', () => {
     fs.mkdirSync(path.dirname(file()), { recursive: true });
     fs.writeFileSync(file(), '{nope');
-    expect(manager().status().configured).toBe(false);
+    expect(manager().list().models).toEqual([]);
   });
 
   it('tests a connection without saving anything', async () => {
@@ -108,7 +169,15 @@ describe('ModelManager', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       'https://api.example.com/v1/chat/completions',
     );
-    expect(m.status().configured).toBe(false);
+    expect(m.list().models).toEqual([]);
+  });
+
+  it('reuses the key of a named saved model, but never borrows the default’s key for a new one', async () => {
+    const m = manager({ fetch: async () => sse() });
+    m.save(undefined, input);
+    const noKey = { baseUrl: input.baseUrl, model: 'm1' };
+    await expect(m.test(noKey)).rejects.toThrow(SettingsError);
+    expect(await m.test({ ...noKey, id: 'm-1' })).toMatchObject({ ok: true });
   });
 
   it('reports a provider failure without leaking the key', async () => {
@@ -159,30 +228,45 @@ describe('settings routes', () => {
     return { send };
   }
 
-  it('never returns the key from any route', async () => {
+  it('never returns a key from any route', async () => {
     const { send } = setup();
-    const put = await send('PUT', '/settings/model', input);
-    expect(put.status).toBe(200);
+    const created = await send('POST', '/settings/models', input);
+    expect(created.status).toBe(201);
     for (const res of [
-      put,
-      await send('GET', '/settings/model'),
-      await send('POST', '/settings/model/test', input),
-      await send('DELETE', '/settings/model'),
+      created,
+      await send('PUT', '/settings/models/m-1', { ...input, model: 'm2' }),
+      await send('GET', '/settings/models'),
+      await send('POST', '/settings/models/test', input),
+      await send('PUT', '/settings/default-model', { id: 'm-1' }),
+      await send('DELETE', '/settings/models/m-1'),
     ]) {
       expect(await res.text()).not.toContain(KEY);
     }
   });
 
-  it('answers 400 for unsafe or incomplete input and 415 for non-JSON', async () => {
+  it('adds, lists, changes the default and removes', async () => {
+    const { send } = setup();
+    await send('POST', '/settings/models', input);
+    await send('POST', '/settings/models', { ...input, model: 'm2' });
+    const set = await send('PUT', '/settings/default-model', { id: 'm-2' });
+    expect(((await set.json()) as { defaultId: string }).defaultId).toBe('m-2');
+    const del = await send('DELETE', '/settings/models/m-2');
+    expect(((await del.json()) as { models: unknown[] }).models).toHaveLength(1);
+  });
+
+  it('answers 400 for unsafe or incomplete input, 404 for an unknown model and 415 for non-JSON', async () => {
     const { send } = setup();
     expect(
-      (await send('PUT', '/settings/model', { ...input, baseUrl: 'http://evil.com' })).status,
+      (await send('POST', '/settings/models', { ...input, baseUrl: 'http://evil.com' })).status,
     ).toBe(400);
-    expect((await send('PUT', '/settings/model', { baseUrl: 'https://a.com' })).status).toBe(400);
-    expect((await send('PUT', '/settings/model', { ...input, apiKey: undefined })).status).toBe(
+    expect((await send('POST', '/settings/models', { baseUrl: 'https://a.com' })).status).toBe(400);
+    expect((await send('POST', '/settings/models', { ...input, apiKey: undefined })).status).toBe(
       400,
     );
-    expect((await send('PUT', '/settings/model', input, 'text/plain')).status).toBe(415);
+    expect((await send('POST', '/settings/models', input, 'text/plain')).status).toBe(415);
+    expect((await send('PUT', '/settings/models/ghost', input)).status).toBe(400);
+    expect((await send('DELETE', '/settings/models/ghost')).status).toBe(404);
+    expect((await send('PUT', '/settings/default-model', { id: 'ghost' })).status).toBe(404);
   });
 
   it('refuses a foreign Host', async () => {
@@ -192,7 +276,7 @@ describe('settings routes', () => {
       approvals: new ApprovalBroker(),
       models: manager(),
     });
-    const res = await app.request('/settings/model', { headers: { host: 'evil.com' } });
+    const res = await app.request('/settings/models', { headers: { host: 'evil.com' } });
     expect(res.status).toBe(403);
   });
 });

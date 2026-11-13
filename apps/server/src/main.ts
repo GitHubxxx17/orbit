@@ -93,7 +93,7 @@ const runs = new RunManager({
   approver: approvals,
   demoLlm: createDemoLlm(),
   rollback: await createRollback(workspace),
-  live: () => models.current(),
+  live: (modelId) => models.current(modelId),
 });
 const app = createApp({ store, runs, approvals, models, mcp });
 

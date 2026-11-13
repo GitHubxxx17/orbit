@@ -22,6 +22,8 @@ export const OrbitEvent = z.discriminatedUnion('type', [
     type: z.literal('run.started'),
     agentId: z.string().min(1),
     workspace: z.string().min(1),
+    /** The model name for a live run; absent in older logs and for the demo model. */
+    model: z.string().min(1).optional(),
   }),
   /** What the user asked in this run; recorded so history can be rebuilt from the log alone. */
   z.object({ ...base, type: z.literal('user.message'), text: z.string().min(1) }),

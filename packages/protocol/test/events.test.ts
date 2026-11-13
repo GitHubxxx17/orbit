@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ModelInput, ModelStatus, ServerInfo, SessionSummary } from '../src/api.js';
+import { ModelInput, ModelList, ServerInfo, SessionSummary } from '../src/api.js';
 import { OrbitEvent } from '../src/events.js';
 
 const base = { id: 'e1', runId: 'r1', seq: 1, ts: 1 };
@@ -121,16 +121,26 @@ describe('API shapes', () => {
     expect(ModelInput.safeParse({ ...input, model: '' }).success).toBe(false);
   });
 
-  it('has no place for a key in the model status', () => {
-    const status = {
-      configured: true,
-      source: 'settings',
+  it('has no place for a key in the model list', () => {
+    const model = {
+      id: 'm-1',
+      label: 'M',
       baseUrl: 'https://a.example',
       model: 'm',
       apiKeyHint: '1234',
+      source: 'settings',
     };
-    const parsed = ModelStatus.parse({ ...status, apiKey: 'secret' });
-    expect(parsed).not.toHaveProperty('apiKey');
-    expect(ModelStatus.safeParse({ ...status, source: 'cloud' }).success).toBe(false);
+    const parsed = ModelList.parse({ models: [{ ...model, apiKey: 'secret' }], defaultId: 'm-1' });
+    expect(parsed.models[0]).not.toHaveProperty('apiKey');
+    expect(
+      ModelList.safeParse({ models: [{ ...model, source: 'none' }], defaultId: null }).success,
+    ).toBe(false);
+  });
+
+  it('accepts run.started with or without a model name, and rejects an empty one', () => {
+    const started = { ...base, type: 'run.started', agentId: 'a', workspace: '/w' };
+    expect(OrbitEvent.safeParse(started).success).toBe(true);
+    expect(OrbitEvent.safeParse({ ...started, model: 'deepseek-flash' }).success).toBe(true);
+    expect(OrbitEvent.safeParse({ ...started, model: '' }).success).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { ArrowUp, Folder, Square } from 'lucide-react';
 import { useRef, type KeyboardEvent } from 'react';
 
 import type { ApprovalMode, RunMode } from '@/api';
+import { MenuSelect } from '@/components/menu-select';
 import type { BalanceChip } from '@/lib/balance';
 
 interface Props {
@@ -22,8 +23,17 @@ interface Props {
   modelLabel: string;
   /** The account balance next to the model name; null when there is nothing to show. */
   balance?: BalanceChip | null;
+  /** Saved models to choose from; the picker shows only when there is more than one. */
+  models?: { id: string; label: string }[];
+  modelId?: string | null;
+  onModelChange?: (id: string) => void;
   placeholder: string;
 }
+
+const APPROVALS: { value: ApprovalMode; label: string }[] = [
+  { value: 'ask', label: '写入前询问我' },
+  { value: 'readonly', label: '只读（拒绝写入）' },
+];
 
 const MODES: { value: RunMode; label: string }[] = [
   { value: 'demo', label: '演示' },
@@ -86,18 +96,13 @@ export function Composer(props: Props) {
           })}
         </div>
 
-        <label className="flex items-center gap-1 text-muted-foreground">
-          <span className="sr-only">写入审批方式</span>
-          <select
-            value={props.approval}
-            disabled={props.running}
-            onChange={(event) => props.onApproval(event.target.value as ApprovalMode)}
-            className="rounded-md bg-muted px-2 py-1 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            <option value="ask">写入前询问我</option>
-            <option value="readonly">只读（拒绝写入）</option>
-          </select>
-        </label>
+        <MenuSelect<ApprovalMode>
+          label="写入审批方式"
+          value={props.approval}
+          disabled={props.running}
+          onChange={props.onApproval}
+          options={APPROVALS}
+        />
 
         <span className="ml-auto flex min-w-0 items-center gap-2 text-muted-foreground">
           {props.balance && (
@@ -110,7 +115,18 @@ export function Composer(props: Props) {
               {props.balance.text}
             </span>
           )}
-          <span className="truncate">{props.modelLabel}</span>
+          {props.mode === 'live' && (props.models?.length ?? 0) > 1 && props.modelId ? (
+            <MenuSelect<string>
+              label="模型"
+              value={props.modelId}
+              disabled={props.running}
+              onChange={(id) => props.onModelChange?.(id)}
+              options={props.models?.map((m) => ({ value: m.id, label: m.label })) ?? []}
+              className="max-w-44"
+            />
+          ) : (
+            <span className="truncate">{props.modelLabel}</span>
+          )}
         </span>
 
         {props.running ? (

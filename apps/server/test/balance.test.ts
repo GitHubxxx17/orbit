@@ -136,7 +136,7 @@ describe('ModelManager.balance', () => {
     let clock = 1_000_000;
     let calls = 0;
     const settings = new SettingsStore(path.join(dir, 'settings.json'));
-    settings.writeModel(deepseek);
+    settings.write({ models: [{ id: 'a', label: 'ds', ...deepseek }], defaultId: 'a' });
     const models = new ModelManager({
       settings,
       now: () => clock,
@@ -168,10 +168,10 @@ describe('ModelManager.balance', () => {
   it('lets a manual refresh ask again, but not several times in a few seconds', async () => {
     const { models, calls, advance } = setup();
     await models.balance();
-    await models.balance(true);
+    await models.balance(undefined, true);
     expect(calls()).toBe(1);
     advance(4_000);
-    await models.balance(true);
+    await models.balance(undefined, true);
     expect(calls()).toBe(2);
   });
 
@@ -192,7 +192,7 @@ describe('ModelManager.balance', () => {
   it('forgets the answer when the model or key changes', async () => {
     const { models, calls } = setup();
     await models.balance();
-    models.save({
+    models.save('a', {
       baseUrl: 'https://api.deepseek.com',
       model: 'deepseek-flash',
       apiKey: 'sk-other-5678',
@@ -202,12 +202,12 @@ describe('ModelManager.balance', () => {
   });
 });
 
-describe('GET /settings/model/balance', () => {
+describe('GET /settings/balance', () => {
   it('returns numbers and a message, never the key', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-balance-route-'));
     try {
       const settings = new SettingsStore(path.join(dir, 'settings.json'));
-      settings.writeModel(deepseek);
+      settings.write({ models: [{ id: 'a', label: 'ds', ...deepseek }], defaultId: 'a' });
       const models = new ModelManager({ settings, fetch: async () => json(reply) });
       const app = createApp({
         store: new BroadcastingStore(new InMemoryEventStore()),
@@ -215,7 +215,7 @@ describe('GET /settings/model/balance', () => {
         approvals: new ApprovalBroker(),
         models,
       });
-      const res = await app.request('/settings/model/balance', { headers: { host: 'localhost' } });
+      const res = await app.request('/settings/balance', { headers: { host: 'localhost' } });
       const text = await res.text();
 
       expect(res.status).toBe(200);

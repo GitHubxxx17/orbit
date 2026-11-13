@@ -376,6 +376,31 @@ describe('demo run end to end', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('runs live mode with the model asked for, and refuses one that does not exist', async () => {
+    const store = new BroadcastingStore(new InMemoryEventStore());
+    const asked: (string | undefined)[] = [];
+    const app = createApp({
+      store,
+      approvals: new ApprovalBroker(),
+      runs: new RunManager({
+        store,
+        registry: new ToolRegistry(),
+        workspace: '/w',
+        demoLlm: createDemoLlm(0),
+        live: (modelId) => {
+          asked.push(modelId);
+          return modelId === 'ghost' ? undefined : { llm: createDemoLlm(0), name: 'x' };
+        },
+      }),
+    });
+    const post = (body: unknown) =>
+      call(app, '/runs', { method: 'POST', headers: json, body: JSON.stringify(body) });
+
+    expect((await post({ prompt: 'x', mode: 'live', modelId: 'ghost' })).status).toBe(400);
+    expect((await post({ prompt: 'x', mode: 'live', modelId: 'm-2' })).status).toBe(201);
+    expect(asked).toContain('m-2');
+  });
 });
 
 describe('sessions', () => {

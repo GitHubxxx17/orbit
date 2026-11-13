@@ -128,7 +128,12 @@ export function Conversation({ session, liveModel, onApprove, onFork }: Props) {
   }, [turns.length, last?.lastSeq]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-4" role="log" aria-live="polite" aria-label="对话">
+    <div
+      className="mx-auto w-full max-w-(--content-max) p-4"
+      role="log"
+      aria-live="polite"
+      aria-label="对话"
+    >
       {turns.map((view, index) => (
         <Turn
           // Turns are only ever appended, so the position is a stable identity.

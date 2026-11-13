@@ -8,35 +8,36 @@ import { fetchBalance, type ModelBalance } from '@/api';
  * is in use, so the demo never makes a request. The server reuses answers for a short while, so
  * asking often is cheap.
  */
-export function useBalance(trigger: string, enabled: boolean) {
-  const [fetched, setFetched] = useState<ModelBalance | null>(null);
+export function useBalance(trigger: string, enabled: boolean, modelId?: string) {
+  // Remember whose balance it is, so a number is never shown against another model.
+  const [fetched, setFetched] = useState<{
+    modelId: string | undefined;
+    value: ModelBalance;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async (force: boolean) => {
-    try {
-      setFetched(await fetchBalance(force));
-    } catch {
-      // A failed lookup keeps the last number on screen rather than blanking it.
-    }
-  }, []);
-
-  // Manual refresh shows a spinner; the automatic one stays quiet.
+  // Manual refresh shows a spinner; the automatic one below stays quiet.
   const refresh = useCallback(
     async (force = false) => {
       if (!enabled) return;
       setLoading(true);
-      await load(force);
-      setLoading(false);
+      try {
+        setFetched({ modelId, value: await fetchBalance(modelId, force) });
+      } catch {
+        // A failed lookup keeps the last number on screen rather than blanking it.
+      } finally {
+        setLoading(false);
+      }
     },
-    [enabled, load],
+    [enabled, modelId],
   );
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    fetchBalance(false).then(
-      (next) => {
-        if (!cancelled) setFetched(next);
+    fetchBalance(modelId, false).then(
+      (value) => {
+        if (!cancelled) setFetched({ modelId, value });
       },
       () => {
         // A failed lookup keeps the last number on screen rather than blanking it.
@@ -45,8 +46,9 @@ export function useBalance(trigger: string, enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, trigger]);
+  }, [enabled, trigger, modelId]);
 
   // Derived rather than reset in the effect: with no real model there is nothing to show.
-  return { balance: enabled ? fetched : null, loading, refresh };
+  const balance = enabled && fetched && fetched.modelId === modelId ? fetched.value : null;
+  return { balance, loading, refresh };
 }
