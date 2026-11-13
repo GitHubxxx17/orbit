@@ -14,7 +14,7 @@ export interface AppDeps {
   runs: RunStarter;
   approvals: ApprovalResolver;
   /** Model settings; absent in tests that do not exercise them. */
-  models?: Pick<ModelManager, 'status' | 'save' | 'clear' | 'test'>;
+  models?: Pick<ModelManager, 'status' | 'save' | 'clear' | 'test' | 'balance'>;
   /** The configured MCP servers, read-only. Absent in tests that do not exercise them. */
   mcp?: { status(): McpStatus };
 }
@@ -146,6 +146,12 @@ export function createApp({ store, runs, approvals, models, mcp }: AppDeps) {
     });
 
     app.delete('/settings/model', (c) => c.json(models.clear()));
+
+    // The provider's account balance. It asks with the saved key on the server; the answer holds
+    // numbers and a message, never the key.
+    app.get('/settings/model/balance', async (c) =>
+      c.json(await models.balance(c.req.query('refresh') === '1')),
+    );
 
     app.post('/settings/model/test', async (c) => {
       const notJson = requireJson(c.req.header('content-type'));

@@ -105,3 +105,31 @@ export const McpStatus = z.object({
   configError: z.string().nullable(),
 });
 export type McpStatus = z.infer<typeof McpStatus>;
+
+/** One currency of an account balance. Amounts stay strings: money is not rounded by a float. */
+export const BalanceLine = z.object({
+  currency: z.string().min(1),
+  total: z.string(),
+  /** Gift credit that has not expired. */
+  granted: z.string(),
+  /** Money the user topped up. */
+  toppedUp: z.string(),
+});
+export type BalanceLine = z.infer<typeof BalanceLine>;
+
+/**
+ * What the model provider says about the account's balance. Only some providers have such an
+ * interface; for the others `supported` is false and `message` says why. A failed lookup is
+ * `supported: true` with no lines and a message, never a made-up zero.
+ */
+export const ModelBalance = z.object({
+  supported: z.boolean(),
+  /** Whether the account can still make calls; null when the provider does not say. */
+  available: z.boolean().nullable(),
+  balances: z.array(BalanceLine),
+  /** Why there are no numbers (unsupported, not configured, lookup failed); null otherwise. */
+  message: z.string().nullable(),
+  /** Epoch milliseconds of the lookup that produced this. */
+  checkedAt: z.number().int().nonnegative(),
+});
+export type ModelBalance = z.infer<typeof ModelBalance>;
