@@ -35,6 +35,7 @@ export function grepTool(sandbox: Sandbox): Tool {
       'Search the workspace for lines matching a regular expression (JavaScript syntax). ' +
       'Returns path:line: text for each match.',
     risk: 'read',
+    idempotent: true,
     schema: z.object({
       pattern: z.string().min(1).max(200).describe('Regular expression to search for.'),
       path: z.string().default('.').describe('File or directory to search, relative to the root.'),

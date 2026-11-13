@@ -14,3 +14,9 @@ Built-in tools the agent can call. This is where filesystem access lives (not in
 - A tool that changes a file must report it with `context.recordChange({path, before, after})` so
   the change is logged and can be rolled back (ADR 0006). `rollbackWrite` refuses when the file no
   longer equals `after`.
+
+- Every model call sends the whole conversation again, so prefer tools that do more per call
+  (`read_files`, `list_dir` with `depth`) over many small ones (ADR 0016). A batch tool must go
+  through the same code and sandbox as its one-at-a-time version, report a file it cannot read in
+  its place instead of failing the rest, and cap the total output. Mark a tool `idempotent` only if
+  it merely reads the workspace.
