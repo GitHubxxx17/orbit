@@ -1,4 +1,4 @@
-import type { OrbitEvent } from '@orbit/protocol';
+import { EARLY_STOP_PREFIX, type OrbitEvent } from '@orbit/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { summarizeSession } from '../src/session-summary.js';
@@ -93,6 +93,14 @@ describe('summarizeSession', () => {
     const stopped = log('r2', 0, started, asked('x'), { type: 'run.failed', reason: 'cancelled' });
     expect(summarizeSession('s', [failed]).status).toBe('failed');
     expect(summarizeSession('s', [stopped]).status).toBe('idle');
+  });
+
+  it('does not flag a run Orbit ended early after taking an answer', () => {
+    const early = log('r3', 0, started, asked('x'), {
+      type: 'run.failed',
+      reason: `${EARLY_STOP_PREFIX}loop`,
+    });
+    expect(summarizeSession('s', [early]).status).toBe('idle');
   });
 
   it('copes with a session that has no events yet', () => {
