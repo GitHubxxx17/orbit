@@ -1,4 +1,4 @@
-import type { RiskLevel } from '@orbit/protocol';
+import { EARLY_STOP_PREFIX, type RiskLevel } from '@orbit/protocol';
 
 import type { EventStore } from '../event-store.js';
 import type { ChatMessage, FinishReason, LlmClient, ToolCall } from '../llm/types.js';
@@ -27,15 +27,47 @@ export interface RunAgentOptions {
   approver?: Approver;
   /** Ids for approval requests; injectable so tests are deterministic. */
   newApprovalId?: () => string;
-  /** Upper bound on model calls, so a confused model cannot loop forever. Default 10. */
+  /**
+   * A safety ceiling on model calls, far above what real work needs, so a runaway cannot spend
+   * money forever. Default 100. Going in circles is caught much earlier (see LOOP_REPEATS).
+   */
   maxSteps?: number;
   signal?: AbortSignal;
 }
 
 export type RunResult = { status: 'completed' } | { status: 'failed'; reason: string };
 
-const DEFAULT_MAX_STEPS = 10;
+const DEFAULT_MAX_STEPS = 100;
 const DEFAULT_MAX_CONTEXT_CHARS = 120_000;
+/** The same call returning the same result this many times in a row means the model is stuck. */
+const LOOP_REPEATS = 3;
+
+/** Counts how often each exact call (same tool, same arguments) has given the exact same result. */
+class RepeatTracker {
+  private readonly seen = new Map<string, { output: string; count: number }>();
+
+  /** Record a finished call and return how many times in a row it has now given this result. */
+  record(call: ToolCall, output: string): number {
+    const key = `${call.name}\u0000${normalize(call.arguments)}`;
+    const before = this.seen.get(key);
+    // A changed result means something changed in between (a file was written): not a loop.
+    const count = before && before.output === output ? before.count + 1 : 1;
+    this.seen.set(key, { output, count });
+    return count;
+  }
+}
+
+function normalize(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw));
+  } catch {
+    return raw.trim();
+  }
+}
+
+const WRAP_UP =
+  'Do not call any more tools. Answer the request now using only what you have already read, ' +
+  'and say clearly what you could not finish or are unsure about.';
 
 /**
  * The agent loop: call the model, run the tools it asks for, feed results back, repeat until it
@@ -66,6 +98,22 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
     { role: 'user', content: options.prompt },
   ];
   const maxChars = options.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS;
+  const repeats = new RepeatTracker();
+
+  /**
+   * End a run that is not getting anywhere, but not empty-handed: the model is asked once more,
+   * without tools, to answer from what it has gathered. The run still ends as failed, with a reason
+   * that says the answer may be incomplete. (A user's Stop is different: it ends at once.)
+   */
+  const wrapUp = async (why: 'loop' | 'steps', cause: string): Promise<RunResult> => {
+    if (signal?.aborted) return fail('cancelled');
+    messages.push({
+      role: 'user',
+      content: `Orbit stopped your tool use because ${cause}. ${WRAP_UP}`,
+    });
+    await streamTurn(options, fitToBudget(messages, { maxChars }), false);
+    return fail(`${EARLY_STOP_PREFIX}${why}`);
+  };
 
   try {
     for (let step = 0; step < maxSteps; step++) {
@@ -89,8 +137,17 @@ export async function runAgent(options: RunAgentOptions): Promise<RunResult> {
       turn.toolCalls.forEach((call, index) => {
         messages.push({ role: 'tool', toolCallId: call.id, content: contents[index] ?? '' });
       });
+      const stuck = turn.toolCalls.some(
+        (call, index) => repeats.record(call, contents[index] ?? '') >= LOOP_REPEATS,
+      );
+      if (stuck) {
+        return await wrapUp(
+          'loop',
+          `you made the same call with the same result ${LOOP_REPEATS} times`,
+        );
+      }
     }
-    return fail(`stopped after reaching the limit of ${maxSteps} steps`);
+    return await wrapUp('steps', `the safety limit of ${maxSteps} model calls was reached`);
   } catch (error) {
     if (signal?.aborted) return fail('cancelled');
     return fail(`model error: ${error instanceof Error ? error.message : String(error)}`);
@@ -104,9 +161,13 @@ interface Turn {
 }
 
 /** One model call: stream text into message.delta events and collect the requested tool calls. */
-async function streamTurn(options: RunAgentOptions, messages: ChatMessage[]): Promise<Turn> {
+async function streamTurn(
+  options: RunAgentOptions,
+  messages: ChatMessage[],
+  withTools = true,
+): Promise<Turn> {
   const turn: Turn = { text: '', toolCalls: [], finishReason: 'unknown' };
-  const specs = options.registry.specs();
+  const specs = withTools ? options.registry.specs() : [];
   const request = { messages, ...(specs.length > 0 ? { tools: specs } : {}) };
 
   for await (const event of options.llm.stream(request, options.signal)) {

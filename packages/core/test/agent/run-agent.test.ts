@@ -1,3 +1,4 @@
+import { EARLY_STOP_PREFIX } from '@orbit/protocol';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -212,16 +213,31 @@ describe('runAgent', () => {
     });
   });
 
-  it('fails when the step limit is reached', async () => {
-    const loop = [call('c', 'echo', { text: 'again' }), finish('tool_calls')];
-    const { store, options } = setup([loop, loop, loop], { maxSteps: 2 });
+  it('asks for an answer from what it has when the safety ceiling is reached', async () => {
+    const distinct = (n: number) => [
+      call(`c${n}`, 'echo', { text: `t${n}` }),
+      finish('tool_calls'),
+    ];
+    const { store, llm, options } = setup(
+      [distinct(1), distinct(2), [say('Here is what I found.'), finish()]],
+      { maxSteps: 2 },
+    );
     const result = await runAgent(options);
 
-    expect(result).toEqual({
-      status: 'failed',
-      reason: 'stopped after reaching the limit of 2 steps',
-    });
+    expect(result).toEqual({ status: 'failed', reason: `${EARLY_STOP_PREFIX}steps` });
     expect(types(store).at(-1)).toBe('run.failed');
+    // The answer is in the log, before the failure.
+    const text = store
+      .read('r1')
+      .flatMap((e) => (e.type === 'message.delta' ? [e.text] : []))
+      .join('');
+    expect(text).toContain('Here is what I found.');
+    // The last request offered no tools and told the model why.
+    const last = llm.requests.at(-1);
+    expect(last?.tools).toBeUndefined();
+    expect(last?.messages.at(-1)).toMatchObject({ role: 'user' });
+    expect(String(last?.messages.at(-1)?.content)).toContain('safety limit of 2 model calls');
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
   });
 
   it('fails with "cancelled" when aborted', async () => {
@@ -585,5 +601,127 @@ describe('runAgent: report', () => {
 
     const result = store.read('r1').find((e) => e.type === 'tool.result');
     expect(result).toMatchObject({ ok: false });
+  });
+});
+
+describe('runAgent: no practical step limit, but not stuck', () => {
+  const again = (id: string) => [call(id, 'echo', { text: 'again' }), finish('tool_calls')];
+  const distinct = (n: number) => [call(`c${n}`, 'echo', { text: `t${n}` }), finish('tool_calls')];
+
+  it('lets a long job with different steps run to the end, far past the old limit of 10', async () => {
+    const steps = Array.from({ length: 30 }, (_, n) => distinct(n));
+    const { store, options } = setup([...steps, [say('done'), finish()]]);
+    const result = await runAgent(options);
+
+    expect(result).toEqual({ status: 'completed' });
+    expect(store.read('r1').filter((e) => e.type === 'tool.result')).toHaveLength(30);
+  });
+
+  it('stops a model that repeats the same call with the same result, and takes its answer', async () => {
+    const { store, llm, options } = setup([
+      again('a'),
+      again('b'),
+      again('c'),
+      [say('I kept getting the same thing.'), finish()],
+    ]);
+    const result = await runAgent(options);
+
+    expect(result).toEqual({ status: 'failed', reason: `${EARLY_STOP_PREFIX}loop` });
+    // Three identical calls ran; the fourth was never made.
+    expect(store.read('r1').filter((e) => e.type === 'tool.result')).toHaveLength(3);
+    const text = store
+      .read('r1')
+      .flatMap((e) => (e.type === 'message.delta' ? [e.text] : []))
+      .join('');
+    expect(text).toContain('I kept getting the same thing.');
+    expect(llm.requests.at(-1)?.tools).toBeUndefined();
+    expect(String(llm.requests.at(-1)?.messages.at(-1)?.content)).toContain(
+      'same call with the same result 3 times',
+    );
+  });
+
+  it('does not call it a loop when the same call gives a different result each time', async () => {
+    let n = 0;
+    const changing = defineTool({
+      name: 'counter',
+      description: 'Returns a new number each time.',
+      risk: 'read',
+      schema: z.object({}),
+      execute: async () => String(++n),
+    });
+    const once = (id: string) => [call(id, 'counter', {}), finish('tool_calls')];
+    const { options } = setup([once('a'), once('b'), once('c'), once('d'), [say('ok'), finish()]]);
+    options.registry.register(changing);
+    expect(await runAgent(options)).toEqual({ status: 'completed' });
+  });
+
+  it('counts arguments, not their spelling, so extra spaces still repeat', async () => {
+    const withArgs = (id: string, args: string) => [
+      { type: 'tool-call', call: { id, name: 'echo', arguments: args } } as LlmEvent,
+      finish('tool_calls'),
+    ];
+    const { store, options } = setup([
+      withArgs('a', '{"text":"x"}'),
+      withArgs('b', '{ "text": "x" }'),
+      withArgs('c', ' {"text":"x"} '),
+      [say('stuck'), finish()],
+    ]);
+    const result = await runAgent(options);
+    expect(result).toEqual({ status: 'failed', reason: `${EARLY_STOP_PREFIX}loop` });
+    expect(store.read('r1').filter((e) => e.type === 'tool.result')).toHaveLength(3);
+  });
+
+  it('ignores a tool call the model makes after being told to stop', async () => {
+    const { store, options } = setup([
+      again('a'),
+      again('b'),
+      again('c'),
+      [say('One more look.'), call('z', 'echo', { text: 'sneaky' }), finish('tool_calls')],
+    ]);
+    const result = await runAgent(options);
+
+    expect(result).toEqual({ status: 'failed', reason: `${EARLY_STOP_PREFIX}loop` });
+    expect(store.read('r1').some((e) => e.type === 'tool.requested' && e.callId === 'z')).toBe(
+      false,
+    );
+  });
+
+  it('still ends at once when the user stops, with no extra model call', async () => {
+    const controller = new AbortController();
+    const stopper = defineTool({
+      name: 'stopper',
+      description: 'Stops the run, as the Stop button does.',
+      risk: 'read',
+      schema: z.object({}),
+      execute: async () => {
+        controller.abort();
+        return 'x';
+      },
+    });
+    const { llm, options } = setup(
+      [
+        [call('s', 'stopper', {}), finish('tool_calls')],
+        [say('more'), finish()],
+      ],
+      { signal: controller.signal },
+    );
+    options.registry.register(stopper);
+    const result = await runAgent(options);
+
+    expect(result).toEqual({ status: 'failed', reason: 'cancelled' });
+    expect(llm.requests).toHaveLength(1);
+  });
+
+  it('keeps the answer in the history of the next turn', async () => {
+    const { store, options } = setup([
+      again('a'),
+      again('b'),
+      again('c'),
+      [say('Partial answer.'), finish()],
+    ]);
+    await runAgent(options);
+
+    const history = historyFromRuns([store.read('r1')]);
+    expect(history.at(-1)).toMatchObject({ role: 'assistant', content: 'Partial answer.' });
   });
 });

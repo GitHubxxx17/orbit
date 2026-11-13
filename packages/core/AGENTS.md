@@ -24,3 +24,8 @@ Event store and the agent runtime.
 - The `report` tool (`src/tools/report.ts`) records the agent's claims; whether they have evidence is
   decided by `checkReport`, never by the model (ADR 0007). Keep the system prompt's reporting rules
   in sync with `test/agent/prompt.test.ts`.
+
+- The loop has no small step limit (ADR 0010). `maxSteps` is a high safety ceiling; being stuck is
+  caught by `RepeatTracker` (same call, same result, three times). Either way the model is asked
+  once more, without tools, for an answer, and the run ends `failed` with `EARLY_STOP_PREFIX`. A
+  user's Stop must still end the run at once, with no further model call.
