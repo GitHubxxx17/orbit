@@ -80,6 +80,22 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/eval/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@orbit/server', '@orbit/web', '@orbit/store-sqlite', '@orbit/mcp'],
+              message: 'eval may depend on core, protocol and tools only.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['packages/tools/**/*.ts'],
     rules: {
       'no-restricted-imports': [

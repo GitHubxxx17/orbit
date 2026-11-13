@@ -17,6 +17,7 @@ Read `docs/architecture.md` before changing anything in `packages/` or `apps/ser
 - `packages/tools` — built-in tools and the workspace sandbox. May import `core`.
 - `packages/store-sqlite` — SQLite event and session stores. May import `core` and `protocol`.
 - `packages/mcp` — MCP client and its tools. May import `core` and `protocol`.
+- `packages/eval` — offline evaluation (cases, checks, judge, comparison). May import `core`, `protocol` and `tools`.
 - `apps/server` — Hono HTTP server. May import `core`, `tools`, `store-sqlite`, `mcp` and `protocol`.
 - `apps/web` — React UI. May import `protocol` only (types and schemas), never `core`.
 - Boundaries are enforced by ESLint; a violation fails `pnpm check`.

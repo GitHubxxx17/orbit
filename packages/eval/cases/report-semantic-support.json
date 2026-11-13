@@ -1,0 +1,46 @@
+{
+  "id": "report-semantic-support",
+  "category": "report",
+  "description": "Every claim cites a real call, and a judge confirms that the cited output really supports the claim.",
+  "files": {
+    "package.json": "{\n  \"name\": \"tiny-notes\",\n  \"version\": \"0.3.1\"\n}\n"
+  },
+  "prompt": "读一下 package.json，提交报告：项目名和版本号分别是什么。",
+  "checks": [
+    { "type": "run-completed" },
+    { "type": "report-made" },
+    { "type": "report-all-supported" },
+    { "type": "claims-semantic" }
+  ],
+  "selfTest": {
+    "pass": [
+      {
+        "say": "读 package.json。",
+        "call": { "name": "read_file", "args": { "path": "package.json" } }
+      },
+      {
+        "say": "提交报告。",
+        "call": {
+          "name": "report",
+          "args": {
+            "claims": [
+              { "text": "项目名为 tiny-notes", "evidence": ["s1"] },
+              { "text": "版本号为 0.3.1", "evidence": ["s1"] }
+            ]
+          }
+        }
+      },
+      { "say": "项目名是 tiny-notes，版本号是 0.3.1。" }
+    ],
+    "fail": [
+      {
+        "say": "提交报告。",
+        "call": {
+          "name": "report",
+          "args": { "claims": [{ "text": "版本号为 0.3.1", "evidence": [] }] }
+        }
+      },
+      { "say": "版本号是 0.3.1。" }
+    ]
+  }
+}
