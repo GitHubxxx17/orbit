@@ -725,3 +725,57 @@ describe('runAgent: no practical step limit, but not stuck', () => {
     expect(history.at(-1)).toMatchObject({ role: 'assistant', content: 'Partial answer.' });
   });
 });
+
+describe('runAgent: token usage', () => {
+  const usage = (promptTokens: number, completionTokens: number): LlmEvent => ({
+    type: 'finish',
+    reason: 'stop',
+    usage: { promptTokens, completionTokens },
+  });
+  const toolTurn = (promptTokens: number, completionTokens: number): LlmEvent[] => [
+    call('u1', 'echo', { text: 'x' }),
+    { type: 'finish', reason: 'tool_calls', usage: { promptTokens, completionTokens } },
+  ];
+
+  it('records what each model call cost, in order, as the provider reported it', async () => {
+    const { store, options } = setup([toolTurn(100, 10), [say('done'), usage(150, 20)]]);
+    await runAgent(options);
+
+    const events = store.read('r1').filter((e) => e.type === 'model.usage');
+    expect(
+      events.map((e) => (e.type === 'model.usage' ? [e.promptTokens, e.completionTokens] : [])),
+    ).toEqual([
+      [100, 10],
+      [150, 20],
+    ]);
+    expect(checkInvariants(store.read('r1'))).toEqual([]);
+  });
+
+  it('records nothing when the provider reports nothing, so unknown is not zero', async () => {
+    const { store, options } = setup([[say('hi'), finish()]]);
+    await runAgent(options);
+    expect(types(store)).not.toContain('model.usage');
+  });
+
+  it('also records the cost of the wrap-up call after an early stop', async () => {
+    const again = (id: string) => [
+      call(id, 'echo', { text: 'again' }),
+      {
+        type: 'finish',
+        reason: 'tool_calls',
+        usage: { promptTokens: 10, completionTokens: 1 },
+      } as LlmEvent,
+    ];
+    const { store, options } = setup([
+      again('a'),
+      again('b'),
+      again('c'),
+      [say('partial'), usage(40, 5)],
+    ]);
+    await runAgent(options);
+
+    const counts = store.read('r1').filter((e) => e.type === 'model.usage');
+    expect(counts).toHaveLength(4);
+    expect(counts.at(-1)).toMatchObject({ promptTokens: 40, completionTokens: 5 });
+  });
+});

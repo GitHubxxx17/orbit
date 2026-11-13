@@ -1,6 +1,7 @@
 import { createOpenAICompatibleClient, type LlmClient, type LlmConfig } from '@orbit/core';
-import type { ModelInput, ModelStatus, ModelTestResult } from '@orbit/protocol';
+import type { ModelBalance, ModelInput, ModelStatus, ModelTestResult } from '@orbit/protocol';
 
+import { fetchBalance } from './balance.js';
 import type { SettingsStore } from './settings.js';
 
 /** A request the user can fix: bad URL, missing key. */
@@ -23,7 +24,14 @@ export interface ModelManagerOptions {
   fetch?: typeof fetch;
   /** How long a connection test may take. */
   testTimeoutMs?: number;
+  /** Injectable clock for the balance cache. */
+  now?: () => number;
 }
+
+/** How long a balance is reused, so a busy screen does not keep asking the provider. */
+const BALANCE_TTL_MS = 30_000;
+/** The shortest gap even a manual refresh obeys, and how long a failed lookup is remembered. */
+const BALANCE_MIN_GAP_MS = 3_000;
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -54,6 +62,8 @@ const hintOf = (apiKey: string) => (apiKey.length > 8 ? apiKey.slice(-4) : '****
 export class ModelManager {
   private active: { config: LlmConfig; source: 'settings' | 'env' } | undefined;
   private client: LiveModel | undefined;
+  private balanceCache: { at: number; value: ModelBalance } | undefined;
+  private balanceInFlight: Promise<ModelBalance> | undefined;
 
   constructor(private readonly options: ModelManagerOptions) {
     this.reload();
@@ -67,6 +77,8 @@ export class ModelManager {
     this.client = this.active
       ? { llm: this.build(this.active.config), name: this.active.config.model }
       : undefined;
+    // A different model or key means a different account: forget the old balance.
+    this.balanceCache = undefined;
   }
 
   private build(config: LlmConfig): LlmClient {
@@ -112,6 +124,47 @@ export class ModelManager {
     this.options.settings.writeModel(undefined);
     this.reload();
     return this.status();
+  }
+
+  /**
+   * The account balance at the provider, for the model in use. The key stays on the server: the
+   * answer holds numbers and a message only. Reused for a short while; `refresh` asks again but
+   * not more often than every few seconds. Concurrent asks share one request.
+   */
+  async balance(refresh = false): Promise<ModelBalance> {
+    const now = (this.options.now ?? Date.now)();
+    const config = this.active?.config;
+    if (!config) {
+      return {
+        supported: false,
+        available: null,
+        balances: [],
+        message: '还没有配置模型',
+        checkedAt: now,
+      };
+    }
+    const cached = this.balanceCache;
+    if (cached) {
+      const worked = cached.value.balances.length > 0 || !cached.value.supported;
+      const limit = refresh || !worked ? BALANCE_MIN_GAP_MS : BALANCE_TTL_MS;
+      if (now - cached.at < limit) return cached.value;
+    }
+    if (this.balanceInFlight) return this.balanceInFlight;
+
+    const request = fetchBalance(config, {
+      ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
+      now: () => now,
+    }).then((value) => {
+      // Ignore the answer if the model was changed while it was on its way.
+      if (this.active?.config === config) this.balanceCache = { at: now, value };
+      return value;
+    });
+    this.balanceInFlight = request;
+    try {
+      return await request;
+    } finally {
+      this.balanceInFlight = undefined;
+    }
   }
 
   /** Send a tiny request with the given settings (saved or not) and report how it went. */

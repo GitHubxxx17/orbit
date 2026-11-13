@@ -89,6 +89,17 @@ export const OrbitEvent = z.discriminatedUnion('type', [
     callId: z.string().min(1),
     path: z.string().min(1),
   }),
+  /**
+   * What one model call cost, as the provider reported it. Appended after the call finishes. Absent
+   * when the provider does not report usage (and for the scripted demo model), so a missing event
+   * means "unknown", never zero.
+   */
+  z.object({
+    ...base,
+    type: z.literal('model.usage'),
+    promptTokens: z.number().int().nonnegative(),
+    completionTokens: z.number().int().nonnegative(),
+  }),
   z.object({ ...base, type: z.literal('run.completed') }),
   z.object({ ...base, type: z.literal('run.failed'), reason: z.string() }),
 ]);

@@ -12,6 +12,7 @@ const DOT: Record<TimelineRow['type'], string> = {
   'tool.result': 'bg-emerald-400',
   'file.changed': 'bg-teal-400',
   'file.rolledback': 'bg-rose-400',
+  'model.usage': 'bg-slate-400',
   'run.completed': 'bg-emerald-400',
   'run.failed': 'bg-red-400',
 };

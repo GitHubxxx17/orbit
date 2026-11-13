@@ -3,6 +3,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import { clearModel, fetchModel, saveModel, testModel, type ModelStatus } from '@/api';
 import { Button } from '@/components/ui/button';
+import { useBalance } from '@/hooks/use-balance';
+import { BalanceCard } from '@/components/balance-card';
 import { McpSection } from '@/components/mcp-section';
 import {
   BASE_URL_PRESETS,
@@ -35,6 +37,11 @@ export function SettingsView({ onBack, onChanged }: Props) {
   const [values, setValues] = useState<ModelFormValues>({ baseUrl: '', model: '', apiKey: '' });
   const [busy, setBusy] = useState<'save' | 'test' | 'clear' | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  // Asked again after the model is saved or cleared, since that may be a different account.
+  const balance = useBalance(
+    `${status?.model ?? ''}:${status?.apiKeyHint ?? ''}`,
+    status?.configured === true,
+  );
 
   // Fill the form with what is in use. The key is never sent back, so its field stays empty.
   const adopt = (next: ModelStatus) => {
@@ -130,6 +137,14 @@ export function SettingsView({ onBack, onChanged }: Props) {
                   ? `，API Key 以 …${status.apiKeyHint} 结尾`
                   : ''}
               </p>
+            )}
+
+            {status?.configured && (
+              <BalanceCard
+                balance={balance.balance}
+                loading={balance.loading}
+                onRefresh={() => void balance.refresh(true)}
+              />
             )}
 
             <div className="space-y-1.5">

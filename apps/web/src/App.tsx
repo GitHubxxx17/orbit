@@ -21,10 +21,12 @@ import { Sidebar } from '@/components/sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useBalance } from '@/hooks/use-balance';
 import { useReplay } from '@/hooks/use-replay';
 import { useRun } from '@/hooks/use-run';
 import { useSessions } from '@/hooks/use-sessions';
 import { useTheme } from '@/hooks/use-theme';
+import { balanceChip } from '@/lib/balance';
 import { collectChanges, type Change } from '@/state/changes';
 import { emptyRun } from '@/state/timeline';
 
@@ -89,6 +91,12 @@ export function App() {
   const workspaceName = info?.workspaceName ?? '工作区';
   const modelLabel = mode === 'live' ? (info?.liveModel ?? '真实模型') : '演示模型';
   const title = session.turns[0]?.prompt ?? '新会话';
+  // The balance of the account behind the real model; the demo model costs nothing.
+  const { balance } = useBalance(
+    `${session.turns.length}:${view.status}:${info?.liveModel ?? ''}`,
+    mode === 'live' && info?.liveModel != null,
+  );
+  const chip = balanceChip(balance);
 
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -161,6 +169,7 @@ export function App() {
       onApproval={setApproval}
       workspaceName={workspaceName}
       modelLabel={modelLabel}
+      balance={chip}
       placeholder={hasConversation ? '继续追问…（Enter 发送，Shift+Enter 换行）' : '随心输入'}
     />
   );

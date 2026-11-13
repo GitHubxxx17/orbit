@@ -2,6 +2,7 @@ import { ArrowUp, Folder, Square } from 'lucide-react';
 import { useRef, type KeyboardEvent } from 'react';
 
 import type { ApprovalMode, RunMode } from '@/api';
+import type { BalanceChip } from '@/lib/balance';
 
 interface Props {
   value: string;
@@ -19,6 +20,8 @@ interface Props {
   workspaceName: string;
   /** Name shown on the right: the live model, or the demo model. */
   modelLabel: string;
+  /** The account balance next to the model name; null when there is nothing to show. */
+  balance?: BalanceChip | null;
   placeholder: string;
 }
 
@@ -96,7 +99,19 @@ export function Composer(props: Props) {
           </select>
         </label>
 
-        <span className="ml-auto truncate text-muted-foreground">{props.modelLabel}</span>
+        <span className="ml-auto flex min-w-0 items-center gap-2 text-muted-foreground">
+          {props.balance && (
+            <span
+              title={props.balance.detail}
+              className={
+                props.balance.tone === 'low' ? 'text-red-600 dark:text-red-400' : undefined
+              }
+            >
+              {props.balance.text}
+            </span>
+          )}
+          <span className="truncate">{props.modelLabel}</span>
+        </span>
 
         {props.running ? (
           <button
