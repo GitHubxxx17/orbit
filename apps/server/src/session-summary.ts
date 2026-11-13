@@ -1,5 +1,10 @@
 import { projectRun } from '@orbit/core';
-import type { OrbitEvent, SessionStatus, SessionSummary } from '@orbit/protocol';
+import {
+  EARLY_STOP_PREFIX,
+  type OrbitEvent,
+  type SessionStatus,
+  type SessionSummary,
+} from '@orbit/protocol';
 
 const TITLE_CHARS = 40;
 const SNIPPET_CHARS = 80;
@@ -30,8 +35,15 @@ export function summarizeSession(
   const waiting = last.toolCalls.some((call) => call.status === 'awaiting');
   let status: SessionStatus = 'idle';
   if (last.status === 'running') status = waiting ? 'awaiting' : 'running';
-  // A run the user stopped is not an error worth flagging in the list.
-  else if (last.status === 'failed' && last.failureReason !== 'cancelled') status = 'failed';
+  // A run the user stopped, or one Orbit ended after taking an answer, is not an error worth
+  // flagging in the list.
+  else if (
+    last.status === 'failed' &&
+    last.failureReason !== 'cancelled' &&
+    !last.failureReason?.startsWith(EARLY_STOP_PREFIX)
+  ) {
+    status = 'failed';
+  }
 
   return {
     sessionId,

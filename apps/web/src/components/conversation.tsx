@@ -8,6 +8,7 @@ import { ProcessGroup } from '@/components/process-group';
 import { ReportCard } from '@/components/report-card';
 import { duration } from '@/lib/format';
 import { layoutItems } from '@/state/group';
+import { describeFailure } from '@/state/failure';
 import { missingReport, reportOf, withoutReport } from '@/state/report';
 import type { SessionView } from '@/state/session';
 import type { RunView } from '@/state/timeline';
@@ -91,11 +92,25 @@ const Turn = memo(function Turn({ view, liveModel, onApprove, onFork, index }: T
         />
       )}
 
-      {view.status === 'failed' && (
-        <p role="alert" className="my-3 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-          运行失败：{view.failReason}
-        </p>
-      )}
+      {view.status === 'failed' &&
+        (() => {
+          const notice = describeFailure(view.failReason);
+          return notice.kind === 'early' ? (
+            <p
+              role="status"
+              className="my-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-300"
+            >
+              {notice.text}
+            </p>
+          ) : (
+            <p
+              role="alert"
+              className="my-3 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              {notice.text}
+            </p>
+          );
+        })()}
     </section>
   );
 });

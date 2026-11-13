@@ -94,3 +94,11 @@ export const OrbitEvent = z.discriminatedUnion('type', [
 ]);
 export type OrbitEvent = z.infer<typeof OrbitEvent>;
 export type OrbitEventType = OrbitEvent['type'];
+
+/**
+ * A run that Orbit ended itself, after asking the model for a final answer from what it had
+ * gathered, fails with `stopped early: <why>`. The answer is in the log; the reason says it may be
+ * incomplete. `<why>` is `loop` (the same call kept returning the same result) or `steps` (the
+ * safety ceiling on model calls was reached).
+ */
+export const EARLY_STOP_PREFIX = 'stopped early: ';
