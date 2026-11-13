@@ -35,6 +35,20 @@ describe('ToolRegistry', () => {
     const [spec] = new ToolRegistry().register(withDefault).specs();
     expect(spec?.parameters).toMatchObject({ required: ['path'] });
   });
+
+  it('sends a ready-made JSON Schema as is', () => {
+    const parameters = { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] };
+    const external = {
+      name: 'ext',
+      description: 'From elsewhere.',
+      risk: 'write' as const,
+      schema: z.record(z.string(), z.unknown()),
+      jsonSchema: parameters,
+      run: async () => '',
+    };
+    const [spec] = new ToolRegistry().register(external).specs();
+    expect(spec?.parameters).toEqual(parameters);
+  });
 });
 
 describe('defineTool', () => {

@@ -19,6 +19,9 @@ export class ToolRegistry {
   /** The tool list sent to the model, with JSON Schema derived from each zod schema. */
   specs(): ToolSpec[] {
     return [...this.tools.values()].map((tool) => {
+      if (tool.jsonSchema) {
+        return { name: tool.name, description: tool.description, parameters: tool.jsonSchema };
+      }
       const { $schema: _ignored, ...parameters } = z.toJSONSchema(tool.schema, {
         // Describe what the model must SEND: fields with defaults are optional on input.
         io: 'input',
