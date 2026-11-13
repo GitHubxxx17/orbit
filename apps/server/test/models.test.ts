@@ -189,6 +189,16 @@ describe('ModelManager', () => {
     expect(result.message).not.toContain(KEY);
   });
 
+  it('adds a plain hint when the provider is rate limiting, and keeps its own text', async () => {
+    const busy = vi.fn<typeof fetch>(
+      async () => new Response('{"error":{"code":"1305"}}', { status: 429 }),
+    );
+    const result = await manager({ fetch: busy }).test(input);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('1305');
+    expect(result.message).toContain('稍后重试');
+  });
+
   it('shows the network error code hidden behind "fetch failed"', async () => {
     const down = vi.fn<typeof fetch>(async () => {
       throw new TypeError('fetch failed', { cause: { code: 'ENOTFOUND' } });
@@ -205,7 +215,11 @@ describe('ModelManager', () => {
         }),
     );
     const result = await manager({ fetch: hang, testTimeoutMs: 20 }).test(input);
-    expect(result).toEqual({ ok: false, message: '请求超时', latencyMs: null });
+    expect(result).toEqual({
+      ok: false,
+      message: expect.stringContaining('请求超时'),
+      latencyMs: null,
+    });
   });
 });
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { createOpenAICompatibleClient, type LlmClient, type LlmConfig } from '@orbit/core';
+import { providerHint } from '@orbit/protocol';
 import type {
   ModelBalance,
   ModelInput,
@@ -42,6 +43,9 @@ export interface ModelManagerOptions {
 const BALANCE_TTL_MS = 30_000;
 /** The shortest gap even a manual refresh obeys, and how long a failed lookup is remembered. */
 const BALANCE_MIN_GAP_MS = 3_000;
+
+/** What a timed-out connection test says: the provider may simply be busy, which is not a setup error. */
+const TIMEOUT_MESSAGE = '请求超时：服务商没有及时回应，可能在排队或限流，请稍后重试';
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -252,7 +256,7 @@ export class ModelManager {
       model: input.model.trim(),
     };
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.options.testTimeoutMs ?? 15_000);
+    const timer = setTimeout(() => controller.abort(), this.options.testTimeoutMs ?? 30_000);
     const started = Date.now();
     try {
       const stream = this.build(config).stream(
@@ -269,12 +273,14 @@ export class ModelManager {
       // Node's fetch hides the real reason ("fetch failed") in `cause`, e.g. ENOTFOUND.
       const cause =
         error instanceof Error ? (error.cause as { code?: unknown } | undefined) : undefined;
-      const text =
+      const raw =
         (error instanceof Error ? error.message : String(error)) +
         (typeof cause?.code === 'string' ? ` (${cause.code})` : '');
+      const hint = providerHint(raw);
+      const text = hint ? `${raw}。${hint}` : raw;
       return {
         ok: false,
-        message: (timedOut ? '请求超时' : text).replaceAll(config.apiKey, '[redacted]'),
+        message: (timedOut ? TIMEOUT_MESSAGE : text).replaceAll(config.apiKey, '[redacted]'),
         latencyMs: null,
       };
     } finally {

@@ -52,6 +52,7 @@ model output / user action → runtime → `EventStore.append` → SSE → web p
 | Evaluation (cases, judge, compare) | implemented |
 | Token usage per turn               | implemented |
 | Several saved models, per run      | implemented |
+| Agent profiles (model, tools)      | implemented |
 | Desktop shell                      | planned     |
 
 When you implement a planned part, update this table in the same change.

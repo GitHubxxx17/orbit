@@ -2,6 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
 
 import { ChatSection } from '@/components/chat-section';
+import { AgentsSection } from '@/components/agents-section';
 import { AppearanceSection } from '@/components/appearance-section';
 import { McpSection } from '@/components/mcp-section';
 import { ModelsSection } from '@/components/models-section';
@@ -21,6 +22,7 @@ interface Props {
 
 const SECTIONS = [
   { id: 'model', label: '模型' },
+  { id: 'agents', label: '智能体' },
   { id: 'appearance', label: '外观' },
   { id: 'chat', label: '聊天' },
   { id: 'mcp', label: 'MCP' },
@@ -66,6 +68,7 @@ export function SettingsView({
       {section === 'appearance' && (
         <AppearanceSection appearance={appearance} onChange={onAppearance} />
       )}
+      {section === 'agents' && <AgentsSection onChanged={onChanged} />}
       {section === 'chat' && <ChatSection preferences={preferences} onChange={onPreferences} />}
       {section === 'model' && <ModelsSection onChanged={onChanged} />}
     </div>

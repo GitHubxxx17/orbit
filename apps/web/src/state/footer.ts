@@ -5,7 +5,9 @@ import type { RunView } from '@/state/timeline';
 
 /** The model's name for the line under an answer: the one the run used, else the current default. */
 export function modelLabel(view: RunView, liveModel: string | null): string {
-  return view.agentId === 'orbit-demo' ? '演示模型' : (view.model ?? liveModel ?? '真实模型');
+  if (view.agentId === 'orbit-demo') return '演示模型';
+  const model = view.model ?? liveModel ?? '真实模型';
+  return view.agentName ? `${view.agentName} · ${model}` : model;
 }
 
 /**

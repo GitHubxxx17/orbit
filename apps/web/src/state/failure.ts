@@ -1,4 +1,4 @@
-import { EARLY_STOP_PREFIX } from '@orbit/protocol';
+import { EARLY_STOP_PREFIX, providerHint } from '@orbit/protocol';
 
 /**
  * How a failed run is shown. A run that Orbit stopped itself, after asking the model for an answer
@@ -25,5 +25,6 @@ export function describeFailure(reason: string | null): FailureNotice {
       text: EARLY_TEXT[why] ?? '已提前结束。上面的回答可能不完整。',
     };
   }
-  return { kind: 'error', text: `运行失败：${reason ?? '未知原因'}` };
+  const hint = reason ? providerHint(reason) : null;
+  return { kind: 'error', text: `运行失败：${reason ?? '未知原因'}${hint ? `\n${hint}` : ''}` };
 }

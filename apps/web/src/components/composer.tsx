@@ -27,6 +27,10 @@ interface Props {
   models?: { id: string; label: string }[];
   modelId?: string | null;
   onModelChange?: (id: string) => void;
+  /** Agent profiles to choose from; the picker shows in live mode once the list has loaded. */
+  agents?: { id: string; name: string }[];
+  agentId?: string | null;
+  onAgentChange?: (id: string) => void;
   placeholder: string;
 }
 
@@ -103,6 +107,17 @@ export function Composer(props: Props) {
           onChange={props.onApproval}
           options={APPROVALS}
         />
+
+        {props.mode === 'live' && (props.agents?.length ?? 0) > 0 && props.agentId && (
+          <MenuSelect<string>
+            label="智能体"
+            value={props.agentId}
+            disabled={props.running}
+            onChange={(id) => props.onAgentChange?.(id)}
+            options={props.agents?.map((a) => ({ value: a.id, label: a.name })) ?? []}
+            className="max-w-40"
+          />
+        )}
 
         <span className="ml-auto flex min-w-0 items-center gap-2 text-muted-foreground">
           {props.balance && (

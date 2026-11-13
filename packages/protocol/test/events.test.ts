@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ModelInput, ModelList, ServerInfo, SessionSummary } from '../src/api.js';
+import {
+  AgentInput,
+  AgentProfile,
+  ModelInput,
+  ModelList,
+  ServerInfo,
+  SessionSummary,
+} from '../src/api.js';
 import { OrbitEvent } from '../src/events.js';
 
 const base = { id: 'e1', runId: 'r1', seq: 1, ts: 1 };
@@ -142,5 +149,32 @@ describe('API shapes', () => {
     expect(OrbitEvent.safeParse(started).success).toBe(true);
     expect(OrbitEvent.safeParse({ ...started, model: 'deepseek-flash' }).success).toBe(true);
     expect(OrbitEvent.safeParse({ ...started, model: '' }).success).toBe(false);
+  });
+
+  it('accepts run.started with or without an agent name, and rejects an empty one', () => {
+    const started = { ...base, type: 'run.started', agentId: 'a', workspace: '/w' };
+    expect(OrbitEvent.safeParse({ ...started, agentName: 'Reviewer' }).success).toBe(true);
+    expect(OrbitEvent.safeParse({ ...started, agentName: '' }).success).toBe(false);
+  });
+
+  it('accepts an agent with only a name, and rejects an empty name or a too long prompt', () => {
+    expect(AgentInput.safeParse({ name: 'A' }).success).toBe(true);
+    expect(AgentInput.safeParse({ name: 'A', tools: null, modelId: null }).success).toBe(true);
+    expect(AgentInput.safeParse({ name: '  ' }).success).toBe(false);
+    expect(AgentInput.safeParse({ name: 'A', instructions: 'x'.repeat(4001) }).success).toBe(false);
+  });
+
+  it('describes an agent with a nullable model and tool list', () => {
+    const agent = {
+      id: 'a',
+      name: 'A',
+      description: '',
+      instructions: '',
+      modelId: null,
+      tools: null,
+      builtin: false,
+    };
+    expect(AgentProfile.safeParse(agent).success).toBe(true);
+    expect(AgentProfile.safeParse({ ...agent, tools: [1] }).success).toBe(false);
   });
 });

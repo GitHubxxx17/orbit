@@ -12,13 +12,22 @@ const ev = (draft: Record<string, unknown>, ts = 1000) =>
 /** A finished run with the given usage events between start and end. */
 function run(options: {
   agent?: string;
+  agentName?: string;
   usage?: [number, number][];
   end?: 'ok' | 'early' | 'error';
 }) {
   seq = 0;
   const end = options.end ?? 'ok';
   return applyEvents(emptyRun, [
-    ev({ type: 'run.started', agentId: options.agent ?? 'orbit-default', workspace: '/w' }, 1000),
+    ev(
+      {
+        type: 'run.started',
+        agentId: options.agent ?? 'orbit-default',
+        workspace: '/w',
+        ...(options.agentName ? { agentName: options.agentName } : {}),
+      },
+      1000,
+    ),
     ev({ type: 'user.message', text: 'q' }),
     ...(options.usage ?? []).map(([promptTokens, completionTokens]) =>
       ev({ type: 'model.usage', promptTokens, completionTokens }),
@@ -79,6 +88,12 @@ describe('turnFooter', () => {
   it('shows model, time and tokens for a finished run', () => {
     expect(turnFooter(run({ usage: [[12_345, 85]] }), 'deepseek-flash')).toBe(
       'deepseek-flash · 用时 27 秒 · 输入 12.3k · 输出 85 token',
+    );
+  });
+
+  it('names the agent profile before the model when the run used one', () => {
+    expect(turnFooter(run({ agentName: 'Reviewer', usage: [[1, 1]] }), 'deepseek-flash')).toMatch(
+      /^Reviewer · deepseek-flash · /,
     );
   });
 

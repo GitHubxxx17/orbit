@@ -16,6 +16,24 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
+  /** Every registered tool, for listing in a settings page. */
+  list(): Tool[] {
+    return [...this.tools.values()];
+  }
+
+  /**
+   * A registry holding only the named tools (names that are not registered are ignored). It
+   * narrows what a run may call; it can never add a tool, so it can not widen what is allowed.
+   */
+  pick(names: readonly string[]): ToolRegistry {
+    const picked = new ToolRegistry();
+    for (const name of names) {
+      const tool = this.tools.get(name);
+      if (tool && !picked.tools.has(name)) picked.register(tool);
+    }
+    return picked;
+  }
+
   /** The tool list sent to the model, with JSON Schema derived from each zod schema. */
   specs(): ToolSpec[] {
     return [...this.tools.values()].map((tool) => {

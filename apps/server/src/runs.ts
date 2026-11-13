@@ -17,6 +17,7 @@ import { RollbackConflict } from '@orbit/tools';
 
 import type { ServerInfo, SessionSummary } from '@orbit/protocol';
 
+import type { ResolvedAgent } from './agents.js';
 import { summarizeSession } from './session-summary.js';
 
 export type RunMode = 'demo' | 'live';
@@ -38,8 +39,10 @@ export interface RunStarter {
     mode: RunMode;
     approval?: ApprovalMode | undefined;
     sessionId?: string | undefined;
-    /** A saved model for live mode; the default when omitted. */
+    /** A saved model for live mode; the agent's, else the default, when omitted. */
     modelId?: string | undefined;
+    /** An agent profile for live mode; the built-in agent when omitted. */
+    agentId?: string | undefined;
   }): {
     runId: string;
     sessionId: string;
@@ -93,6 +96,8 @@ export class RunRejected extends Error {
 export interface RunManagerOptions {
   store: EventStore;
   registry: ToolRegistry;
+  /** Agent profiles; without it every run uses the built-in agent. */
+  agents?: { resolve(id?: string): ResolvedAgent | undefined };
   workspace: string;
   demoLlm: LlmClient;
   /** The model for live mode right now; asked on every call so saved settings apply at once. */
@@ -136,20 +141,30 @@ export class RunManager implements RunStarter {
     approval = 'ask',
     sessionId,
     modelId,
+    agentId,
   }: {
     prompt: string;
     mode: RunMode;
     approval?: ApprovalMode | undefined;
     sessionId?: string | undefined;
     modelId?: string | undefined;
+    agentId?: string | undefined;
   }): {
     runId: string;
     sessionId: string;
   } {
+    // An agent profile (live mode only) picks a model and narrows the tools. An explicit model
+    // wins over the agent's; an agent whose model was since deleted falls back to the default.
+    const agent = mode === 'live' ? this.options.agents?.resolve(agentId) : undefined;
+    if (mode === 'live' && agentId !== undefined && !agent) {
+      throw new RunRejected('unknown agent', 400);
+    }
     if (mode === 'live' && modelId !== undefined && !this.options.live?.(modelId)) {
       throw new RunRejected('unknown model', 400);
     }
-    const live = mode === 'live' ? this.options.live?.(modelId) : undefined;
+    const wanted = modelId ?? agent?.modelId ?? undefined;
+    const live =
+      mode === 'live' ? (this.options.live?.(wanted) ?? this.options.live?.()) : undefined;
     const llm = mode === 'live' ? live?.llm : this.options.demoLlm;
     if (!llm) throw new RunRejected('live mode is not configured on this server', 400);
 
@@ -178,13 +193,20 @@ export class RunManager implements RunStarter {
     // synchronously, so the log exists by the time this method returns.
     void runAgent({
       runId,
-      agentId: mode === 'live' ? 'orbit-default' : 'orbit-demo',
+      agentId:
+        mode !== 'live' ? 'orbit-demo' : agent && !agent.builtin ? agent.id : 'orbit-default',
+      ...(agent && !agent.builtin ? { agentName: agent.name } : {}),
       ...(live ? { modelName: live.name } : {}),
       workspace: this.options.workspace,
       llm,
       store: this.options.store,
-      registry: this.options.registry,
-      systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      // `report` stays: the evidence check (ADR 0007) must work for every agent.
+      registry: agent?.tools
+        ? this.options.registry.pick([...agent.tools, 'report'])
+        : this.options.registry,
+      systemPrompt: agent?.instructions
+        ? `${DEFAULT_SYSTEM_PROMPT}\n\nAdditional instructions from the user for this agent:\n${agent.instructions}`
+        : DEFAULT_SYSTEM_PROMPT,
       prompt,
       history,
       // "readonly" refuses every write without asking; otherwise the configured policy decides.
