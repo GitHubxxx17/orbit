@@ -10,6 +10,7 @@ const StoredModel = z.object({
   baseUrl: z.string().min(1),
   apiKey: z.string().min(1),
   model: z.string().min(1),
+  contextWindow: z.number().int().positive().optional(),
 });
 export type StoredModel = z.infer<typeof StoredModel>;
 

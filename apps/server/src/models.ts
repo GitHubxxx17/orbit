@@ -24,6 +24,8 @@ export class SettingsError extends Error {
 export interface LiveModel {
   llm: LlmClient;
   name: string;
+  /** The context window in tokens, if the user said; null when unknown. */
+  contextWindow: number | null;
 }
 
 export interface ModelManagerOptions {
@@ -77,6 +79,7 @@ interface Entry {
   label: string;
   config: LlmConfig;
   source: 'settings' | 'env';
+  contextWindow: number | null;
   live: LiveModel;
 }
 
@@ -103,11 +106,12 @@ export class ModelManager {
           m.label,
           { baseUrl: m.baseUrl, apiKey: m.apiKey, model: m.model },
           'settings',
+          m.contextWindow ?? null,
         ),
       );
       this.defaultId = stored.defaultId;
     } else if (this.options.env) {
-      this.entries = [this.entry(ENV_ID, this.options.env.model, this.options.env, 'env')];
+      this.entries = [this.entry(ENV_ID, this.options.env.model, this.options.env, 'env', null)];
       this.defaultId = ENV_ID;
     } else {
       this.entries = [];
@@ -117,8 +121,21 @@ export class ModelManager {
     this.balanceCache.clear();
   }
 
-  private entry(id: string, label: string, config: LlmConfig, source: Entry['source']): Entry {
-    return { id, label, config, source, live: { llm: this.build(config), name: config.model } };
+  private entry(
+    id: string,
+    label: string,
+    config: LlmConfig,
+    source: Entry['source'],
+    contextWindow: number | null,
+  ): Entry {
+    return {
+      id,
+      label,
+      config,
+      source,
+      contextWindow,
+      live: { llm: this.build(config), name: config.model, contextWindow },
+    };
   }
 
   private build(config: LlmConfig): LlmClient {
@@ -146,6 +163,7 @@ export class ModelManager {
         baseUrl: e.config.baseUrl,
         model: e.config.model,
         apiKeyHint: hintOf(e.config.apiKey),
+        contextWindow: e.contextWindow,
         source: e.source,
       })),
       defaultId: this.defaultId,
@@ -168,12 +186,18 @@ export class ModelManager {
     const apiKey = input.apiKey ?? existing?.apiKey;
     if (!apiKey) throw new SettingsError('请填写 API Key');
     const model = input.model.trim();
+    // Left out keeps what is stored; null clears it.
+    const contextWindow =
+      input.contextWindow === undefined
+        ? existing?.contextWindow
+        : (input.contextWindow ?? undefined);
     const saved: StoredModel = {
       id: existing?.id ?? this.newId(),
       label: input.label?.trim() || model,
       baseUrl: normalizeBaseUrl(input.baseUrl),
       apiKey,
       model,
+      ...(contextWindow === undefined ? {} : { contextWindow }),
     };
     const models = existing
       ? stored.models.map((m) => (m.id === saved.id ? saved : m))

@@ -46,7 +46,7 @@ function setup(overrides: Partial<RunStarter> = {}) {
     purge: () => 'unknown',
     rollback: async () => ({ status: 'unknown' }),
     fork: () => ({ status: 'unknown' }),
-    info: () => ({ workspace: '/w', workspaceName: 'w', liveModel: null }),
+    info: () => ({ workspace: '/w', workspaceName: 'w', liveModel: null, report: false }),
     ...overrides,
   };
   const approvals = new ApprovalBroker();
@@ -526,12 +526,18 @@ describe('session list and info', () => {
   it('reports the workspace and available modes', async () => {
     const { app } = setup({
       modes: () => ['demo', 'live'],
-      info: () => ({ workspace: '/home/me/proj', workspaceName: 'proj', liveModel: 'some-model' }),
+      info: () => ({
+        workspace: '/home/me/proj',
+        workspaceName: 'proj',
+        liveModel: 'some-model',
+        report: false,
+      }),
     });
     expect(await (await call(app, '/info')).json()).toEqual({
       workspace: '/home/me/proj',
       workspaceName: 'proj',
       liveModel: 'some-model',
+      report: false,
       modes: ['demo', 'live'],
     });
   });
