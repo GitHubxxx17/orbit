@@ -261,6 +261,8 @@ async function handleToolCalls(options: RunAgentOptions, calls: ToolCall[]): Pro
       if (!item.parsed.valid) throw new Error('arguments must be a JSON object');
       output = await item.tool.run(item.parsed.args, {
         signal,
+        callId: item.call.id,
+        events: () => store.read(runId),
         recordChange: (change) =>
           store.append(runId, { type: 'file.changed', callId: item.call.id, ...change }),
       });

@@ -18,6 +18,8 @@ export interface ToolCard {
   /** Set while the call waits for the user: which approval it belongs to and what would change. */
   approvalId?: string;
   preview?: string;
+  /** The seq of this call's tool.result; evidence must have finished before the report did. */
+  resultSeq?: number;
   /** The tool really changed a file (file.changed); only then can the change be undone. */
   changed?: boolean;
   /** The change was undone later (file.rolledback). */
@@ -178,7 +180,10 @@ export function applyEvent(view: RunView, event: OrbitEvent): RunView {
       const status: ToolStatus = event.ok ? 'done' : 'failed';
       return {
         ...next,
-        tools: { ...view.tools, [event.callId]: { ...card, status, output: event.output } },
+        tools: {
+          ...view.tools,
+          [event.callId]: { ...card, status, output: event.output, resultSeq: event.seq },
+        },
       };
     }
     case 'file.changed':

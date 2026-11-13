@@ -8,6 +8,7 @@ import {
   defineTool,
   InMemoryEventStore,
   ToolRegistry,
+  reportTool,
   type ChatMessage,
   type LlmClient,
 } from '@orbit/core';
@@ -286,6 +287,7 @@ describe('demo run end to end', () => {
         },
       }),
     );
+    registry.register(reportTool());
     const runs = new RunManager({
       store,
       registry,
@@ -326,8 +328,24 @@ describe('demo run end to end', () => {
     expect(events.filter((e) => e.type === 'approval.requested')).toHaveLength(1);
     expect(
       events.flatMap((e) => (e.type === 'tool.decided' ? [`${e.decision}:${e.by}`] : [])),
-    ).toEqual(['allow:policy', 'allow:policy', 'allow:user']);
+    ).toEqual(['allow:policy', 'allow:policy', 'allow:user', 'allow:policy']);
     expect(written).toEqual(['.orbit-demo/notes.txt']);
+  });
+
+  it('ends with a report whose evidence depends on what the user allowed', async () => {
+    const reportOutput = (events: OrbitEvent[]) => {
+      const result = events.find((e) => e.type === 'tool.result' && e.callId === 'demo-4');
+      return result?.type === 'tool.result' ? result.output : '';
+    };
+    const allowed = await runWith('allow');
+    expect(reportOutput(allowed.events)).toContain(
+      '4 claims, 3 supported, 0 partly supported, 1 without evidence',
+    );
+    const rejected = await runWith('deny');
+    expect(reportOutput(rejected.events)).toContain(
+      '4 claims, 2 supported, 0 partly supported, 2 without evidence',
+    );
+    expect(reportOutput(rejected.events)).toContain('demo-3: that call was refused');
   });
 
   it('does not write when the user rejects', async () => {
@@ -335,7 +353,7 @@ describe('demo run end to end', () => {
 
     expect(events.at(-1)?.type).toBe('run.completed');
     expect(written).toEqual([]);
-    expect(events.filter((e) => e.type === 'tool.result')).toHaveLength(2);
+    expect(events.filter((e) => e.type === 'tool.result')).toHaveLength(3);
   });
 
   it('refuses live mode when it is not configured', async () => {

@@ -20,3 +20,7 @@ Event store and the agent runtime.
 - A store implementation is correct when it passes the contract suites in `src/testing.ts`
   (`@orbit/core/testing`). Add a rule there first, then make every implementation satisfy it.
 - Stores hand out copies: changing a returned event or session must never change what is stored.
+
+- The `report` tool (`src/tools/report.ts`) records the agent's claims; whether they have evidence is
+  decided by `checkReport`, never by the model (ADR 0007). Keep the system prompt's reporting rules
+  in sync with `test/agent/prompt.test.ts`.

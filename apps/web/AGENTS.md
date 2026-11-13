@@ -22,3 +22,7 @@ React 19 + Vite + Tailwind CSS 4 UI.
   `dangerouslySetInnerHTML` and never enable raw HTML in the Markdown renderer; the text may repeat
   anything the model read. `test/markdown.test.tsx` guards this.
 - Shapes the server returns are parsed with the schemas in `@orbit/protocol` (`src/api.ts`).
+
+- The report card (`components/report-card.tsx`) is derived from tool cards by `state/report.ts`
+  using the shared rule in `@orbit/protocol`. Never mark a claim from the model's own wording.
+  The label means "backed by a real call", not "proven true".
